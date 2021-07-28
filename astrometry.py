@@ -1,0 +1,153 @@
+import os
+import click
+import glob
+import logging
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
+from askap import Region
+from logger import setupLogger
+
+COLORS = ['darkgreen', 'cornflowerblue', 'mediumvioletred', 'mediumturquoise', 'darkorange', 'fuchsia',
+          'mediumseagreen', 'rebeccapurple', 'teal', 'darkolivegreen', 'palegreen', 'gold']
+MARKERS = ['d'] * len(COLORS)
+
+logger = logging.getLogger(__name__)
+
+@click.command()
+@click.option('-a', '--axlim', default=3, type=int,
+              help='Axis range in arcsec.')
+@click.option('-A', '--alpha', default=0.3, type=float,
+              help='Alpha for scatter points.')
+@click.option('-b', '--bins', default=50,
+              help='Number of bins in offset histograms.')
+@click.option('-m', '--matchdir', default='matches/VASTP1/', type=click.Path(),
+              help='Path to parent crossmatch directory')
+@click.option('-S', '--snrlim', default=10,
+              help='Lower bound on source SNR.')
+@click.option('-R', '--regions', multiple=True, default=None,
+              help='Region numbers to include (e.g. -r 3 4)')
+@click.option('-s', '--survey', default='icrf', type=click.Choice(['icrf', 'ref', 'racs', 'sumss', 'nvss']),
+              help='Name of survey for astrometry comparison')
+@click.option('-v', "--verbose", is_flag=True, default=False,
+              help="Enable verbose logging.")
+def main(axlim, alpha, bins, matchdir, snrlim, regions, survey, verbose):
+
+    setupLogger(verbose)
+
+    if regions:
+        regions = [r for r in regions]
+        fields = Region(regions).fields
+
+    fig = plt.figure(figsize=(10, 10))
+    gs = GridSpec(4, 4, figure=fig)
+    ax1 = fig.add_subplot(gs[1:, :3]) # offsets
+    ax2 = fig.add_subplot(gs[0, :3]) # ra hist
+    ax3 = fig.add_subplot(gs[1:, 3]) # dec hist
+
+    ax1.set_xlabel('RA Offset (arcsec)')
+    ax1.set_ylabel('Dec Offset (arcsec)')
+    ax1.set_xlim([-axlim, axlim])
+    ax1.set_ylim([-axlim, axlim])
+
+    ax2.set_ylabel('Count')
+    ax3.set_xlabel('Count')
+
+    # Plot pixel box
+    ax1.plot([-1.25, -1.25, 1.25, 1.25, -1.25],
+             [-1.25, 1.25, 1.25, -1.25, -1.25],
+             ls='--',
+             lw=2,
+             alpha=1,
+             zorder=4,
+             color='gray')
+
+    # Plot the gridlines
+    for i in range(-axlim, axlim+1):
+        ax1.axvline(i, color='k', alpha=0.1, zorder=1)
+        ax1.axhline(i, color='k', alpha=0.1, zorder=1)
+    
+    all_epochs = []
+    epochs = [e for e in os.listdir(matchdir) if '00' not in e]
+    for color, marker, epoch in zip(COLORS, MARKERS, epochs):
+
+        s = 'askap' if survey in ['racs', 'ref'] else survey
+        files = glob.glob(f'{matchdir}/{epoch}/*{s}.csv')
+        if regions:
+            files = [f for field in fields for f in files if field in f]
+        
+        offsets = pd.concat([pd.read_csv(f) for f in files])
+        offsets = offsets[offsets.askap_flux_peak/offsets.askap_rms_image > snrlim]
+        offsets.insert(0, 'epoch', epoch)
+        
+        all_epochs.append(offsets)
+
+        ax1.scatter(offsets.ra_offset.median(), offsets.dec_offset.median(),
+                    marker=marker, s=100, color=color, zorder=10, label=epoch)
+
+        ax1.scatter(offsets.ra_offset, offsets.dec_offset, s=5, alpha=alpha,
+                    zorder=3, color='k')
+
+    all_epochs = pd.concat(all_epochs)
+    print(all_epochs)
+    all_epochs.to_csv('vastp1_reg3-4_icrf.csv', index=False)
+
+    med_ra = all_epochs.ra_offset.median()
+    med_dec = all_epochs.dec_offset.median()
+    stderr_ra = all_epochs.ra_offset.std() / np.sqrt(len(all_epochs.ra_offset))
+    stderr_dec = all_epochs.ra_offset.std() / np.sqrt(len(all_epochs.dec_offset))
+    std_ra = all_epochs.ra_offset.std()
+    std_dec = all_epochs.dec_offset.std()
+    
+    ax2.hist(all_epochs.ra_offset, bins=bins, histtype='step', color='k')
+    ax3.hist(all_epochs.dec_offset, bins=bins, histtype='step', color='k',
+             orientation='horizontal')
+
+    ax1.axvline(med_ra, ls='-', zorder=5, color='r')
+    ax1.axvline(med_ra, ls='-', zorder=5, color='r')
+    ax1.axhline(med_dec, ls='-', zorder=5, color='r')
+    ax2.axvline(med_ra, ls='-', zorder=5, color='r')
+    ax3.axhline(med_dec, ls='-', zorder=5, color='r')
+
+    ax1.axvline(med_ra + std_ra, ls=':', alpha=0.5, zorder=5, color='r')
+    ax1.axhline(med_dec + std_dec, ls=':', alpha=0.5, zorder=5, color='r')
+    ax2.axvline(med_ra + std_ra, ls=':', alpha=0.5, zorder=5, color='r')
+    ax3.axhline(med_dec + std_dec, ls=':', alpha=0.5, zorder=5, color='r')
+    ax1.axvline(med_ra - std_ra, ls=':', alpha=0.5, zorder=5, color='r')
+    ax1.axhline(med_dec - std_dec, ls=':', alpha=0.5, zorder=5, color='r')
+    ax2.axvline(med_ra - std_ra, ls=':', alpha=0.5, zorder=5, color='r')
+    ax3.axhline(med_dec - std_dec, ls=':', alpha=0.5, zorder=5, color='r')
+    
+    logger.info(f'Matching to {len(all_epochs)} {survey.upper()} sources.')
+    unique = all_epochs.drop_duplicates(subset=[f'{survey}_ra', f'{survey}_dec'])
+    logger.info(f"{len(unique)} unique sources" )
+    logger.info(f"Right ascension offset of {med_ra:.2f} +/- {std_ra:.2f} arcsec")
+    logger.info(f"    and standard error of {stderr_ra:.4f} arcsec")
+    logger.info(f"Declination offset of {med_dec:.2f} +/- {std_dec:.2f} arcsec")
+    logger.info(f"and standard error of {stderr_dec:.4f} arcsec")
+
+    ax1.set_xlim([-(axlim + .2), axlim + .2])
+    ax1.set_ylim([-(axlim + .2), axlim + .2])
+    ax2.set_xlim([-(axlim + .2), axlim + .2])
+    ax3.set_ylim([-(axlim + .2), axlim + .2])
+
+    ax1.set_xticks(range(-axlim, axlim+1))
+    ax1.set_yticks(range(-axlim, axlim+1))
+    ax2.set_xticks(range(-axlim, axlim+1))
+    ax3.set_yticks(range(-axlim, axlim+1))
+    
+    # ax2.set_xticklabels([])
+    # ax2.set_yticklabels([])
+    # ax3.set_xticklabels([])
+    # ax3.set_yticklabels([])
+    # ax2.set_yticks([])
+    # ax3.set_xticks([])
+
+    ax1.legend(loc='best', ncol=4)
+    
+    fig.savefig('vastp1_astrometry.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+if __name__ == '__main__':
+    main()
