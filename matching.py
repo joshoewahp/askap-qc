@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import logging
 import itertools as it
 from askap import Image
@@ -6,25 +8,20 @@ from crossmatch import Crossmatch
 
 logger = logging.getLogger(__name__)
 
-def match_cats(files, refcat, maxoffset, isolim, snrlim):
+def match_cats(files, refcat, maxoffset, isolim, snrlim, outdir):
 
-    image = Image(files, refcat=refcat)
+    image = Image(files, refcat=refcat.sources)
     logger.info(f"Crossmatching {image.name}")
-
-    if 'RACS' in refcat:
-        refname = 'racs'
-    else:
-        refname = 'ref'
 
     catalogs = {}
 
     try:
-        catalogs[refname] = Catalog(image,
-                                    survey_name=refname,
-                                    isolim=isolim,
-                                    snrlim=snrlim)
+        catalogs[refcat.name] = Catalog(image,
+                                        survey_name=refcat.name,
+                                        isolim=isolim,
+                                        snrlim=snrlim)
     except AssertionError as e:
-        logger.debug(e)
+        logger.kxception(e)
 
     try:
         catalogs['askap'] = Catalog(image,
@@ -69,19 +66,17 @@ def match_cats(files, refcat, maxoffset, isolim, snrlim):
 
         try:
             logger.debug(f"Crossmatching {cat1} with {cat2}.")
-            if cat1 == 'icrf':
-                cm = Crossmatch(catalogs[cat2], catalogs[cat1], maxsep=maxoffset, scale_flux=False)
-            elif cat2 == 'icrf':
-                if cat1 != 'askap':
-                    continue
-                cm = Crossmatch(catalogs[cat1], catalogs[cat2], maxsep=maxoffset, scale_flux=False)
-            else:
-                cm = Crossmatch(catalogs[cat1], catalogs[cat2], maxsep=maxoffset)
 
-            logger.debug(f"{len(cm.df)} {cat2} matches located in field.")
-            crossmatches[f'{cat1}-{cat2}'] = cm
+            # Skip crossmatches between secondary catalogues
+            if cat2 == 'icrf' and cat1 != 'askap':
+                continue
+
+            cm = Crossmatch(catalogs[cat1], catalogs[cat2], maxoffset=maxoffset)
+            cm.save(outdir)
+
+            logger.debug(f"{len(cm.df)} {cm.comp_cat.name} matches located in {image.name}.")
 
         except AssertionError as e:
             logger.debug(e)
 
-    return crossmatches
+    return

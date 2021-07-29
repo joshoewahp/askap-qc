@@ -80,7 +80,6 @@ def main(bins, matchdir, rms, regions, survey, snrlim, ylim, verbose):
     med_ratio = all_epochs.flux_peak_ratio.median()
     std_ratio = all_epochs.flux_peak_ratio.std()
    
-    print(all_epochs)
     all_epochs.to_csv(f'vastp1_reg3-4_{s}_fluxes.csv')
 
     unique = all_epochs.drop_duplicates(subset=[f'{survey}_ra', f'{survey}_dec'])
@@ -91,7 +90,7 @@ def main(bins, matchdir, rms, regions, survey, snrlim, ylim, verbose):
 
     ax1.scatter(all_epochs[f'{s}_flux_peak'],
                 all_epochs.flux_peak_ratio, 
-                color='k', s=2, alpha=0.4, zorder=10)
+                color='k', s=2, alpha=0.1, zorder=10)
     ax2.hist(all_epochs.flux_peak_ratio, histtype='step', color='k', bins=bins,
              orientation='horizontal')
 
@@ -105,6 +104,8 @@ def main(bins, matchdir, rms, regions, survey, snrlim, ylim, verbose):
         ax1.plot(xaxis, yaxis, color='r', lw=2, ls='--')
         ax1.plot(xaxis, yaxis2, color='r', lw=2, ls='--')
 
+    ax1.axhline(1, ls='-', lw=1, color='gray')
+    ax2.axhline(1, ls='-', lw=1, color='gray')
 
     ax2.set_yticklabels([])
     ax2.set_yticks([])

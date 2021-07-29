@@ -10,24 +10,31 @@ from astropy import wcs
 from astropy.coordinates import SkyCoord, Angle
 from astropy.io import fits, votable
 from astroquery.vizier import Vizier
-from collections import namedtuple
+from dataclasses import dataclass
+from fileio import load_selavy_file
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
 
-Filepair = namedtuple('Filepair', 'image selavy')
+
+@dataclass
+class Filepair:
+
+    image: Path
+    selavy: Path
 
 
 class Region:
 
-    def __init__(self, regions, band='low'):
-        self.band: str = band
+    def __init__(self, regions: str, band: str = 'low'):
+        self.band = band
         self._register_fields()
 
-        self.name: str = '#' + '-'.join([r for r in regions])
-        self.fields: list = [f for region in regions for f in self.regions[region]]
+        self.name = '#' + '-'.join([r for r in regions])
+        self.fields = [f for region in regions for f in self.regions[region]]
 
     def __repr__(self):
-        return f'Region {self.footprint}-{self.name}'
+        return f'Region {self.band}-{self.name}'
 
     def _register_fields(self):
 
@@ -74,23 +81,21 @@ class Region:
                 '6': ['0113-72']
             }
 
-        
+
 class Epoch:
 
-    def __init__(self, rootpath, tiletype, stokes, regions, band):
-        self.rootpath = Path(rootpath)
+    def __init__(self, rootpath: Path, tiletype: str, stokes: str, regions: str, band: str):
+        self.rootpath = rootpath
         self.tiletype = tiletype
         self.stokes = stokes
         self.region = Region(regions, band) if regions else None
-        self.path = self.rootpath / tiletype
-        self.name = self.rootpath.parts[-1]
-        self.logger = logging.getLogger(__name__ + f' - {self.name}')
+        self.path = rootpath / tiletype
+        self.name = rootpath.parts[-1]
         self._parse_files()
-
 
     def __repr__(self):
         return f'<{self.name}-{self.stokes}-{self.tiletype}>'
-        
+
     def _parse_files(self):
 
         image_files = list(self.path.glob(f'STOKES{self.stokes}_IMAGES/*{self.stokes}.fits'))
@@ -106,7 +111,7 @@ class Epoch:
         num_images = len(self.image_files)
         num_selavy = len(self.selavy_files)    
 
-        self.logger.info(f"{num_images:>4} images and {num_selavy:>4} selavy files in epoch {self.name}.")
+        logger.info(f"{num_images:>4} images and {num_selavy:>4} selavy files in epoch {self.name}.")
 
         # Regex pattern to select field name (e.g. 0012+00A)
         pattern = re.compile(r'\S*(\d{4}[-+]\d{2}[AB])\S*')
@@ -114,26 +119,17 @@ class Epoch:
                       pattern.sub(r'\1', str(sel)) in str(im)]
         self.num_images = len(self.files)
         if self.num_images < num_images:
-            self.logger.warning(f"Only {self.num_images}/{num_images} images have matching selavy file.")
+            logger.warning(f"Only {self.num_images}/{num_images} images have matching selavy file.")
 
 
 class Image:
 
-    def __new__(cls, filepair, load_data=True, **kwargs):
-        if not (os.path.isfile(filepair.image) or os.path.islink(filepair.image)):
-            raise ValueError("Dataset does not seem to exist, check path!")
-        else:
-            return super().__new__(cls)
-
-    def __init__(self, filepair, load_data=True, **kwargs):
+    def __init__(self, filepair, refcat, load_data=True, **kwargs):
         self.imagepath = filepair.image
         self.selavypath = filepair.selavy
         pattern = re.compile(r'\S*(\d{4}[+-]\d{2}[AB])\S*')
         self.name = pattern.sub(r'\1', str(self.imagepath))
-        self.refcat = kwargs.get('refcat')
-        self.kwargs = kwargs
-        
-        self.logger = logging.getLogger(__name__ + f' - {self.name}')
+        self.refcat = refcat
 
         self._parse_name()
         self._load(load_data)
@@ -184,7 +180,7 @@ class Image:
                    "MGPS2": "VIII/82/mgpscat",
                    "ICRF": "I/323/icrf2"}
 
-        if catalogue == 'REF':
+        if catalogue in ['RACS', 'REF']:
             
             sources = self.refcat.copy()
             sources = self._trim_to_field(sources)
@@ -194,18 +190,7 @@ class Image:
             
         elif catalogue == 'ASKAP':
 
-            # Handle loading of multiple source file formats
-            if self.selavypath.suffix in ['.xml', '.vot']:
-                sources = Table.read(
-                    self.selavypath, format="votable", use_names_over_ids=True
-                ).to_pandas()
-            elif self.selavypath.suffix == '.csv':
-                # CSVs from CASDA have all lowercase column names
-                sources = pd.read_csv(self.selavypath).rename(
-                    columns={"spectral_index_from_tt": "spectral_index_from_TT"}
-                )
-            else:
-                sources = pd.read_fwf(self.selavypath, skiprows=[1])
+            sources = load_selavy_file(self.selavypath)
 
             sources.rename(columns={'ra_deg_cont': 'ra', 'dec_deg_cont': 'dec',
                                     'ra_deg_cont_err': 'ra_err', 'dec_deg_cont_err': 'dec_err'},
@@ -233,96 +218,101 @@ class Image:
         except AssertionError:
             raise
 
-        df_result = pd.concat((result[cat].to_pandas() for cat in result.keys()), sort=False)
-        matches = self._clean_matches(catalogue, df_result)
+        vizier_df = pd.concat((result[cat].to_pandas() for cat in result.keys()), sort=False)
+        matches = self._clean_matches(catalogue, vizier_df)
         self.matches = self._trim_to_field(matches)
         assert len(self.matches) > 0, "No {} sources located in this field.".format(catalogue)
 
         return self.matches
 
-    def _clean_matches(self, catalogue, df_result):
+    def _clean_matches(self, catalogue: str, vizier_df: pd.DataFrame) -> pd.DataFrame:
         """
         Create uniform column names and assign scalar values for
         missing information (e.g. local rms, peak flux)
         """
+
         if catalogue == 'NVSS':
-            df_result.rename(columns={'S1.4': 'flux_int', 'e_S1.4': 'flux_int_err',
+            vizier_df.rename(columns={'S1.4': 'flux_int', 'e_S1.4': 'flux_int_err',
                                       'MajAxis': 'maj_axis', 'MinAxis': 'min_axis', 'PA': 'pos_ang',
                                       '_RAJ2000': 'ra', '_DEJ2000': 'dec',
                                       'e_RAJ2000': 'ra_err', 'e_DEJ2000': 'dec_err'},
                              inplace=True)
 
             # Convert RA errors from hms seconds -> degrees
-            df_result['ra_err'] = Angle((0, 0, df_result['ra_err']),
+            vizier_df['ra_err'] = Angle((0, 0, vizier_df['ra_err']),
                                         unit=u.hour).degree
+
             # No peak flux provided, replace with NaN
-            df_result['flux_peak'] = np.nan
-            df_result['flux_peak_err'] = np.nan
-            df_result['rms_image'] = 0.45
-            df_result['pos_ang'].fillna(0.0, inplace=True)
+            vizier_df['flux_peak'] = np.nan
+            vizier_df['flux_peak_err'] = np.nan
+            vizier_df['rms_image'] = 0.45
+            vizier_df['pos_ang'].fillna(0.0, inplace=True)
 
         elif catalogue == 'SUMSS':
-            df_result.rename(columns={'St': 'flux_int', 'e_St': 'flux_int_err',
+            vizier_df.rename(columns={'St': 'flux_int', 'e_St': 'flux_int_err',
                                       'MajAxis': 'maj_axis', 'MinAxis': 'min_axis', 'PA': 'pos_ang',
                                       '_RAJ2000': 'ra', '_DEJ2000': 'dec',
                                       'e_RAJ2000': 'ra_err', 'e_DEJ2000': 'dec_err'},
                              inplace=True)
 
             # No peak flux provided, replace with NaN
-            df_result['flux_peak'] = np.nan
-            df_result['flux_peak_err'] = np.nan
+            vizier_df['flux_peak'] = np.nan
+            vizier_df['flux_peak_err'] = np.nan
+
             # Convert RA errors from arcseconds -> degrees
-            df_result['ra_err'] = Angle(df_result['ra_err'], unit=u.arcsec).degree
-            # Dec dependent RMS according to paper
-            df_result['rms_image'] = df_result.apply(lambda x: 2. if x.dec > -50 else 1.2, axis=1)
+            vizier_df['ra_err'] = Angle(vizier_df['ra_err'], unit=u.arcsec).degree
+
+            # Dec dependent RMS according to Mauch et al. (2)
+            vizier_df['rms_image'] = vizier_df.apply(lambda x: 2. if x.dec > -50 else 1.2, axis=1)
 
         elif catalogue == 'ICRF':
-            df_result.rename(columns={'_RAJ2000': 'ra', '_DEJ2000': 'dec',
+            vizier_df.rename(columns={'_RAJ2000': 'ra', '_DEJ2000': 'dec',
                                       'e_RAJ2000': 'ra_err', 'e_DEJ2000': 'dec_err'},
                              inplace=True)
 
             # Convert RA errors from hms seconds -> degrees
-            df_result['ra_err'] = Angle((0, 0, df_result['ra_err']),
-                                         unit=u.hour).degree
+            vizier_df['ra_err'] = Angle((0, 0, vizier_df['ra_err']), unit=u.hour).degree
+
             # No fluxes / beam parameters provided, replace with NaN
             for col in ['flux_int', 'flux_int_err', 'flux_peak', 'flux_peak_err',
                         'maj_axis', 'min_axis', 'pos_ang', 'rms_image']:
-                df_result[col] = np.nan
+                vizier_df[col] = np.nan
 
         # Convert Dec errors from arcseconds -> degrees
-        df_result['dec_err'] = Angle(df_result['dec_err'], unit=u.arcsec).degree
-        df_result = df_result[['_r', 'ra', 'dec', 'ra_err', 'dec_err',
+        vizier_df['dec_err'] = Angle(vizier_df['dec_err'], unit=u.arcsec).degree
+        vizier_df = vizier_df[['_r', 'ra', 'dec', 'ra_err', 'dec_err',
                                'maj_axis', 'min_axis', 'pos_ang',
                                'flux_int', 'flux_int_err',
                                'flux_peak', 'flux_peak_err', 'rms_image']].copy()
 
-        return df_result
+        return vizier_df
 
     def _get_field_positions(self):
         """Calculate coordinates of field centre, horizontal edge, and corner."""
-        centre = np.array([[self.size_x / 2., self.size_y / 2.]])
+
         if self.size_x >= self.size_y:
             edge = np.array([[self.size_x, self.size_y / 2.]])
         else:
             edge = np.array([[self.size_x / 2., self.size_y]])
-        corner = np.array([[self.size_x, self.size_y]])
 
-        centre = self.wcs.wcs_pix2world(centre, 1)
         edge = self.wcs.wcs_pix2world(edge, 1)
+        centre = np.array([[self.size_x / 2., self.size_y / 2.]])
+        centre = self.wcs.wcs_pix2world(centre, 1)
+        corner = np.array([[self.size_x, self.size_y]])
         corner = self.wcs.wcs_pix2world(corner, 1)
 
         return centre, edge, corner
 
-    def _trim_to_field(self, matches):
+    def _trim_to_field(self, matches: pd.DataFrame) -> pd.DataFrame:
         """Remove any matches with coordinates outside the NaN boundary."""
 
-        # Rough RA / Dec cuts to +- 10 deg from fieldd centre for efficiency
+        # Rough RA / Dec cuts to +- 10 deg from field centre for efficiency
         dist = 10
         matches = matches[(matches.ra > self.cr_ra - dist) &
                           (matches.ra < self.cr_ra + dist) &
                           (matches.dec > self.cr_dec - dist) &
                           (matches.dec < self.cr_dec + dist)].copy()
-        
+
         raw_coords = [[row.ra, row.dec] for i, row in matches.iterrows()]
         pixel_coords = self.wcs.wcs_world2pix(raw_coords, 1)
 
@@ -333,11 +323,10 @@ class Image:
         matches = matches[(matches.pix_x.between(1, self.size_x - 1)) &
                           (matches.pix_y.between(1, self.size_y - 1))]
 
-        # Remove NaN values at image boundary (x,y reversed in data array)
+        # Remove NaN values at image boundary (x,y transposed in data array)
         if len(self.data.shape) > 2:
             matches = matches[~np.isnan(self.data[0, 0, matches.pix_y, matches.pix_x])]
         else:
             matches = matches[~np.isnan(self.data[matches.pix_y, matches.pix_x])]
 
         return matches.drop(columns=['pix_x', 'pix_y'])
-
