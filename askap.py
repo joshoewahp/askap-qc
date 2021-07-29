@@ -106,7 +106,7 @@ class Epoch:
         num_images = len(self.image_files)
         num_selavy = len(self.selavy_files)    
 
-        self.logger.debug(f"{num_images:>4} images and {num_selavy:>4} selavy files in epoch {self.name}.")
+        self.logger.info(f"{num_images:>4} images and {num_selavy:>4} selavy files in epoch {self.name}.")
 
         # Regex pattern to select field name (e.g. 0012+00A)
         pattern = re.compile(r'\S*(\d{4}[-+]\d{2}[AB])\S*')
