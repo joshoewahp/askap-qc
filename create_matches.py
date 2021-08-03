@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 @click.option('-f', '--field', type=click.Path(), nargs=2,
               help='Run on single field / selavy at these Paths.')
 @click.option('-R', '--refcat', type=click.Path(),
-              default='/import/ada1/jpri6587/data/RACS-25asec-Mosaiced_Gaussians_Final_GalCut_v2021_03_01.fits',
+              default='RACS-25asec-Mosaiced_Gaussians_Final_GalCut_v2021_03_01.fits',
               help='Location of reference catalogue table.')
 @click.option('--combined/--no-combined', is_flag=True, default=True,
               help='Flag to use COMBINED mosaics, or otherwise raw TILES.')
@@ -68,7 +68,7 @@ def main(dataset, epoch, field, refcat, combined, stokes, maxoffset,
     elif field:
         epochs = None
     else:
-        raise Exception("Must pass valid directory to either --dataset, --epoch, or --field.")
+        raise SystemExit("Must pass valid directory to either --dataset (-d), --epoch (-e), or --field (-f).")
 
     if 'RACS' in refcat:
         # Get RACS catalogue as base
@@ -120,6 +120,7 @@ def main(dataset, epoch, field, refcat, combined, stokes, maxoffset,
       
 if __name__ == '__main__':
     t1 = time.time()
+
     try:
         main()
     except Exception as e:

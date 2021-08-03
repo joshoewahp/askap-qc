@@ -22,8 +22,6 @@ logger = logging.getLogger(__name__)
               help='Alpha for scatter points.')
 @click.option('-b', '--bins', default=50,
               help='Number of bins in offset histograms.')
-@click.option('-m', '--matchdir', default='matches/VASTP1/', type=click.Path(),
-              help='Path to parent crossmatch directory')
 @click.option('-S', '--snrlim', default=10,
               help='Lower bound on source SNR.')
 @click.option('-R', '--regions', multiple=True, default=None,
@@ -32,6 +30,7 @@ logger = logging.getLogger(__name__)
               help='Name of survey for astrometry comparison')
 @click.option('-v', "--verbose", is_flag=True, default=False,
               help="Enable verbose logging.")
+@click.argument('matchdir', type=click.Path())
 def main(axlim, alpha, bins, matchdir, snrlim, regions, survey, verbose):
 
     setupLogger(verbose)
@@ -40,7 +39,7 @@ def main(axlim, alpha, bins, matchdir, snrlim, regions, survey, verbose):
         regions = [r for r in regions]
         fields = Region(regions).fields
 
-    fig = plt.figure(figsize=(10, 10))
+    fig = plt.figure(figsize=(8, 8))
     gs = GridSpec(4, 4, figure=fig)
     ax1 = fig.add_subplot(gs[1:, :3]) # offsets
     ax2 = fig.add_subplot(gs[0, :3]) # ra hist
@@ -90,7 +89,6 @@ def main(axlim, alpha, bins, matchdir, snrlim, regions, survey, verbose):
                     zorder=3, color='k')
 
     all_epochs = pd.concat(all_epochs)
-    print(all_epochs)
     all_epochs.to_csv('vastp1_reg3-4_icrf.csv', index=False)
 
     med_ra = all_epochs.ra_offset.median()
@@ -123,7 +121,7 @@ def main(axlim, alpha, bins, matchdir, snrlim, regions, survey, verbose):
     unique = all_epochs.drop_duplicates(subset=[f'{survey}_ra', f'{survey}_dec'])
     logger.info(f"{len(unique)} unique sources" )
     logger.info(f"Right ascension offset of {med_ra:.2f} +/- {std_ra:.2f} arcsec")
-    logger.info(f"    and standard error of {stderr_ra:.4f} arcsec")
+    logger.info(f"and standard error of {stderr_ra:.4f} arcsec")
     logger.info(f"Declination offset of {med_dec:.2f} +/- {std_dec:.2f} arcsec")
     logger.info(f"and standard error of {stderr_dec:.4f} arcsec")
 
@@ -137,16 +135,9 @@ def main(axlim, alpha, bins, matchdir, snrlim, regions, survey, verbose):
     ax2.set_xticks(range(-axlim, axlim+1))
     ax3.set_yticks(range(-axlim, axlim+1))
     
-    # ax2.set_xticklabels([])
-    # ax2.set_yticklabels([])
-    # ax3.set_xticklabels([])
-    # ax3.set_yticklabels([])
-    # ax2.set_yticks([])
-    # ax3.set_xticks([])
-
     ax1.legend(loc='best', ncol=4)
     
-    fig.savefig('vastp1_astrometry.png', dpi=300, bbox_inches='tight')
+    # fig.savefig('vastp1_astrometry.png', dpi=300, bbox_inches='tight')
     plt.show()
 
 if __name__ == '__main__':
