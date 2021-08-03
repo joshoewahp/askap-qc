@@ -1,4 +1,4 @@
-#!/usr/local/bin/python3
+#!/usr/env/bin python
 
 import os
 import re
@@ -8,23 +8,26 @@ import pandas as pd
 from astropy.coordinates import SkyCoord
 from astropy import units as u
 from collections import defaultdict
+from catalog import Catalog
+
+logger = logging.getLogger(__name__)
 
 
 class Crossmatch:
-    """
-    docstring for crossmatch
-    """
+    """Crossmatch between two component catalogues"""
 
-    def __init__(self, base_catalog, comp_catalog, **kwargs):
+    def __init__(self, base_catalog: Catalog, comp_catalog: Catalog, **kwargs):
+
+        if base_catalog == 'icrf':
+            base_catalog, comp_catalog = comp_catalog, base_catalog
+        
         self.base_cat = base_catalog
         self.comp_cat = comp_catalog
         self.base_freq = self.base_cat.frequency
         self.comp_freq = self.comp_cat.frequency
         self.spectral_index = kwargs.get('spectral_index', -.8)
+        self.maxoffset = kwargs.get('maxoffset', 10) * u.arcsec
         self.performed = False
-        self.maxsep = kwargs.get('maxsep', 10) * u.arcsec
-
-        self.logger = logging.getLogger(__name__)
 
         self._perform_crossmatch()
         self.ra_offset_med = self.df.ra_offset.median()
@@ -32,11 +35,7 @@ class Crossmatch:
         self.ra_offset_rms = np.sqrt(np.mean(np.square(self.df.ra_offset)))
         self.dec_offset_rms = np.sqrt(np.mean(np.square(self.df.dec_offset)))
 
-        if kwargs.get('scale_flux', True):
-            self._get_flux_ratios()
-        else:
-            self.df['flux_int_ratio'] = np.nan
-            self.df['flux_peak_ratio'] = np.nan
+        self._get_flux_ratios()
 
     def __repr__(self):
         name = "{}({}-{}): {} matches"
@@ -57,12 +56,13 @@ class Crossmatch:
         self.df = self.df.join(matches)
         self.df["d2d"] = d2d.arcsec
 
-        self.df = self.df[self.df.d2d <= self.maxsep].reset_index(drop=True)
+        self.df = self.df[self.df.d2d <= self.maxoffset].reset_index(drop=True)
         assert len(self.df) > 0, "No sufficient crossmatches in this field."
         self._get_offsets()
         self.df.insert(0, 'image', self.base_cat.image.name)
         self.performed = True
-        self.logger.debug("Crossmatch complete.")
+
+        logger.debug("Crossmatch complete.")
 
     def extend_crossmatch(self, catalog, prefix='vastp'):
         
@@ -78,7 +78,7 @@ class Crossmatch:
         self.df = self.df.merge(matches, left_on='idx', right_index=True)
 
         col_select = list(comp_cols.values()) + ['d2d']
-        self.df.loc[self.df.d2d > self.maxsep, col_select] = np.nan
+        self.df.loc[self.df.d2d > self.maxoffset, col_select] = np.nan
 
         self.df.drop(columns=['d2d', 'idx'], inplace=True)
         assert len(self.df) > 0, "No sufficient crossmatches in this field."
@@ -138,7 +138,7 @@ class Crossmatch:
                                           dec=self.df[f'{epoch}_dec'],
                                           unit=u.deg)
                 except KeyError:
-                    self.logger.warning(f"No {epoch} offsets for this field, defaulting to vastp1")
+                    logger.warning(f"No {epoch} offsets for this field, defaulting to vastp1")
                     avg_coords = SkyCoord(ra=self.df['vastp1_ra'],
                                           dec=self.df['vastp1_dec'],
                                           unit=u.deg)
@@ -156,6 +156,13 @@ class Crossmatch:
 
     def _get_flux_ratios(self, avg=False, epoch=None, prefix='vastp'):
 
+        # ICRF has no flux density measurements, and is used only for astrometry
+        if self.base_cat == 'icrf':
+            self.df['flux_int_ratio'] = np.nan
+            self.df['flux_peak_ratio'] = np.nan
+
+            return
+
         if avg:
             int_pattern = re.compile(f'{prefix}\d*x*_flux_int')
             peak_pattern = re.compile(f'{prefix}\d*x*_flux_peak')
@@ -170,7 +177,7 @@ class Crossmatch:
                     med_flux_int = self.df[f'{epoch}_flux_int']
                     med_flux_peak = self.df[f'{epoch}_flux_peak']
                 except KeyError:
-                    self.logger.warning(f"No {epoch} fluxes for this field, defaulting to vastp1.")
+                    logger.warning(f"No {epoch} fluxes for this field, defaulting to vastp1.")
                     med_flux_int = self.df[f'vastp1_flux_int']
                     med_flux_peak = self.df[f'vastp1_flux_peak']
 
@@ -180,12 +187,12 @@ class Crossmatch:
                 self.df[f'{col}_ratio'] = self.df[col] / med_flux_int
                 self.med_flux[col] = np.nanmedian(self.df[f'{col}_ratio'])
                 self.med_flux[f'{col}_std'] = np.std(self.df[f'{col}_ratio'])
-                # self.med_flux[f'{col}_std'] = np.sqrt(np.mean(np.square(self.df[f'{col}_ratio'])))
+                self.med_flux[f'{col}_std'] = np.sqrt(np.mean(np.square(self.df[f'{col}_ratio'])))
             for col in peak_cols:
                 self.df[f'{col}_ratio'] = self.df[col] / med_flux_peak
                 self.med_flux[col] = np.nanmedian(self.df[f'{col}_ratio'])
                 self.med_flux[f'{col}_std'] = np.std(self.df[f'{col}_ratio'])
-                # self.med_flux[f'{col}_rms'] = np.sqrt(np.mean(np.square(self.df[f'{col}_ratio'])))
+                self.med_flux[f'{col}_rms'] = np.sqrt(np.mean(np.square(self.df[f'{col}_ratio'])))
 
             flux_int_ratio = pd.concat([self.df[f'{col}_ratio'] for col in int_cols])
             flux_peak_ratio = pd.concat([self.df[f'{col}_ratio'] for col in peak_cols])
@@ -204,17 +211,8 @@ class Crossmatch:
 
             return 
     
-    def write_crossmatch(self, outname):
+    def save(self, outdir):
         if self.performed:
-            self.df.to_csv(outname, index=False)
-            self.logger.info("Written crossmatch dataframe to {}.".format(outname))
+            self.df.to_csv(f'{outdir}/{self.base_cat.name}-{self.comp_cat.name}.csv', index=False)
         else:
-            self.logger.error("Need to perform a cross match first!")
-
-    def calculate_ratio(self, col1, col2, output_col_name, col1_scaling=1., col2_scaling=1.,
-                        dualmode=False, basecat="sumss"):
-        self.df[output_col_name] = (self.df[col1] * col1_scaling) / (self.df[col2] * col2_scaling)
-
-    def calculate_diff(self, col1, col2, output_col_name, col1_scaling=1.,
-                       col2_scaling=1., dualmode=False, basecat="sumss"):
-        self.df[output_col_name] = (self.df[col1] * col1_scaling) - (self.df[col2] * col2_scaling)
+            logger.error("Need to perform a cross match first!")

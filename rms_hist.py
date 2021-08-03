@@ -8,6 +8,7 @@ from astropy.io import fits
 from matplotlib.gridspec import GridSpec
 from askap import Region
 
+
 @click.command()
 @click.option('-d', '--dataset', type=click.Path(),
               help='Run for all images and epochs at this Path.')
@@ -45,8 +46,6 @@ def main(dataset, stokes, regions, combined, verbose):
             imagepath = f"{epoch}/{tiletype}/STOKES{stokes}_RMSMAPS/*rms.fits"
             files = sorted(glob.glob(dataset + imagepath))
             images = [f for field in fields for f in files if field in f]
-            print(len(files))
-            print(len(images))
 
             rmsvals = dict()
             for i, image in enumerate(images):

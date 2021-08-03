@@ -3,14 +3,14 @@ import glob
 import os
 import time
 import logging
-import pandas as pd
-from astropy.table import Table
-from astropy.time import Time
 from askap import Epoch, Filepair
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from logger import setupLogger
 from matching import match_cats
 from pathlib import Path
+<<<<<<< HEAD
+=======
+from catalog import ReferenceCatalog
+>>>>>>> updates
 
 from astropy.units import UnitsWarning
 import warnings
@@ -53,7 +53,7 @@ def main(dataset, epoch, field, refcat, combined, stokes, maxoffset,
          band, regions, isolim, snrlim, savedir, verbose, wildcard):
 
     setupLogger(verbose, filename='qc.log')
-    
+
     tiletype = 'COMBINED' if combined else 'TILES'
 
     # Create Epoch objects
@@ -64,60 +64,41 @@ def main(dataset, epoch, field, refcat, combined, stokes, maxoffset,
         epochs = sorted(Path(dataset).glob(wildcard))
         epochs = [Epoch(epoch, tiletype, stokes, regions, band) for epoch in epochs]
     elif epoch and os.path.exists(epoch):
-        epochs = [Epoch(epoch, tiletype, stokes, regions, band)]
+        epochs = [Epoch(Path(epoch), tiletype, stokes, regions, band)]
     elif field:
         epochs = None
     else:
         raise SystemExit("Must pass valid directory to either --dataset (-d), --epoch (-e), or --field (-f).")
 
-    if 'RACS' in refcat:
-        # Get RACS catalogue as base
-        refcat = Table.read(refcat).to_pandas()
-        columns = {'N_Gaus': 'N_Gaus',
-                   'RA': 'ra',
-                   'Dec': 'dec',
-                   'Total_flux_Component': 'flux_int',
-                   'E_Total_flux_Component': 'flux_int_err',
-                   'Peak_flux': 'flux_peak',
-                   'E_Peak_flux': 'flux_peak_err',
-                   'Maj': 'maj_axis',
-                   'E_Maj': 'maj_axis_err',
-                   'Min': 'min_axis',
-                   'E_Min': 'min_axis_err',
-                   'PA': 'pos_ang',
-                   'E_PA': 'pos_ang_err',
-                   'Separation_Tile_Centre': 'field_centre_dist',
-                   'Noise': 'rms_image',}
-        refcat = refcat.rename(columns=columns)[columns.values()]
-    else:
-        refcat = pd.read_fwf(refcat, skiprows=[1,])
-        refcat = refcat.rename(columns={'ra_deg_cont': 'ra',
-                                        'dec_deg_cont': 'dec'})
-    
+    # Get reference catalogue
+    refcat = ReferenceCatalog(refcat)
+
+    # Match catalogues for all fields / epochs specified
     if epochs:
 
         for epoch in epochs:
-            os.makedirs(f'matches/{savedir}/{epoch.name}', exist_ok=True)
 
+            outdir = f'matches/{savedir}/{epoch.name}'
+            os.makedirs(outdir, exist_ok=True)
             logger.info(f"Processing {epoch.num_images} images in {epoch}")
+            logger.info(f'Saving output to {outdir}')
 
             for files in epoch.files:
-                catalogues = match_cats(files, refcat, maxoffset, isolim, snrlim)
-                for k, v in catalogues.items():
-                    v.df.to_csv(f'matches/{savedir}/{epoch.name}/{v.base_cat.image.name}_{k}.csv', index=False)
+                match_cats(files, refcat, maxoffset, isolim, snrlim, outdir)
 
-
+    # or run on a single field
     else:
-        # Run on single field
-        files = Filepair(*field)
-        name = files.image.split('/')[1]
 
-        os.makedirs(f'matches/{savedir}/{name}', exist_ok=True)
-        catalogues = match_cats(files, refcat, maxoffset, isolim, snrlim)
-        for k, v in catalogues.items():
-            v.df.to_csv(f'matches/{savedir}/{name}/{k}.csv', index=False)
+        image, sel = field
+        files = Filepair(Path(image), Path(sel))
 
-      
+        outdir = f'matches/{savedir}/'
+        os.makedirs(outdir, exist_ok=True)
+        logger.info(f'Saving output to {outdir}')
+
+        match_cats(files, refcat, maxoffset, isolim, snrlim, outdir)
+
+
 if __name__ == '__main__':
     t1 = time.time()
 
@@ -125,6 +106,7 @@ if __name__ == '__main__':
         main()
     except Exception as e:
         logger.exception(e)
-        
+        exit(1)
+
     t2 = time.time()
     logger.info(f'Took {t2-t1:.1f} seconds')

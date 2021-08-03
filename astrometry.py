@@ -53,14 +53,14 @@ def main(axlim, alpha, bins, matchdir, snrlim, regions, survey, verbose):
     ax2.set_ylabel('Count')
     ax3.set_xlabel('Count')
 
-    # Plot pixel box
-    ax1.plot([-1.25, -1.25, 1.25, 1.25, -1.25],
-             [-1.25, 1.25, 1.25, -1.25, -1.25],
-             ls='--',
-             lw=2,
-             alpha=1,
-             zorder=4,
-             color='gray')
+    # Plot pixel box, unpack line from returned tuple for legend
+    pixbox, = ax1.plot([-1.25, -1.25, 1.25, 1.25, -1.25],
+                       [-1.25, 1.25, 1.25, -1.25, -1.25],
+                       ls='--',
+                       lw=2,
+                       alpha=1,
+                       zorder=4,
+                       color='gray')
 
     # Plot the gridlines
     for i in range(-axlim, axlim+1):
@@ -69,27 +69,35 @@ def main(axlim, alpha, bins, matchdir, snrlim, regions, survey, verbose):
     
     all_epochs = []
     epochs = [e for e in os.listdir(matchdir) if '00' not in e]
+
+    handles = []
+    labels = []
     for color, marker, epoch in zip(COLORS, MARKERS, epochs):
 
         s = 'askap' if survey in ['racs', 'ref'] else survey
         files = glob.glob(f'{matchdir}/{epoch}/*{s}.csv')
+
         if regions:
             files = [f for field in fields for f in files if field in f]
-        
+
+        if len(files) == 0:
+            continue
+
         offsets = pd.concat([pd.read_csv(f) for f in files])
         offsets = offsets[offsets.askap_flux_peak/offsets.askap_rms_image > snrlim]
         offsets.insert(0, 'epoch', epoch)
         
         all_epochs.append(offsets)
 
-        ax1.scatter(offsets.ra_offset.median(), offsets.dec_offset.median(),
-                    marker=marker, s=100, color=color, zorder=10, label=epoch)
-
+        sc = ax1.scatter(offsets.ra_offset.median(), offsets.dec_offset.median(),
+                         marker=marker, s=100, color=color, zorder=10, label=epoch)
         ax1.scatter(offsets.ra_offset, offsets.dec_offset, s=5, alpha=alpha,
                     zorder=3, color='k')
 
+        handles.append(sc)
+        labels.append(epoch)
+
     all_epochs = pd.concat(all_epochs)
-    all_epochs.to_csv('vastp1_reg3-4_icrf.csv', index=False)
 
     med_ra = all_epochs.ra_offset.median()
     med_dec = all_epochs.dec_offset.median()
@@ -102,13 +110,13 @@ def main(axlim, alpha, bins, matchdir, snrlim, regions, survey, verbose):
     ax3.hist(all_epochs.dec_offset, bins=bins, histtype='step', color='k',
              orientation='horizontal')
 
-    ax1.axvline(med_ra, ls='-', zorder=5, color='r')
+    medline = ax1.axvline(med_ra, ls='-', zorder=5, color='r')
     ax1.axvline(med_ra, ls='-', zorder=5, color='r')
     ax1.axhline(med_dec, ls='-', zorder=5, color='r')
     ax2.axvline(med_ra, ls='-', zorder=5, color='r')
     ax3.axhline(med_dec, ls='-', zorder=5, color='r')
 
-    ax1.axvline(med_ra + std_ra, ls=':', alpha=0.5, zorder=5, color='r')
+    stdline = ax1.axvline(med_ra + std_ra, ls=':', alpha=0.5, zorder=5, color='r')
     ax1.axhline(med_dec + std_dec, ls=':', alpha=0.5, zorder=5, color='r')
     ax2.axvline(med_ra + std_ra, ls=':', alpha=0.5, zorder=5, color='r')
     ax3.axhline(med_dec + std_dec, ls=':', alpha=0.5, zorder=5, color='r')
@@ -119,23 +127,29 @@ def main(axlim, alpha, bins, matchdir, snrlim, regions, survey, verbose):
     
     logger.info(f'Matching to {len(all_epochs)} {survey.upper()} sources.')
     unique = all_epochs.drop_duplicates(subset=[f'{survey}_ra', f'{survey}_dec'])
+
     logger.info(f"{len(unique)} unique sources" )
     logger.info(f"Right ascension offset of {med_ra:.2f} +/- {std_ra:.2f} arcsec")
     logger.info(f"and standard error of {stderr_ra:.4f} arcsec")
     logger.info(f"Declination offset of {med_dec:.2f} +/- {std_dec:.2f} arcsec")
-    logger.info(f"and standard error of {stderr_dec:.4f} arcsec")
+    logger.info(f"    and standard error of {stderr_dec:.4f} arcsec")
 
     ax1.set_xlim([-(axlim + .2), axlim + .2])
     ax1.set_ylim([-(axlim + .2), axlim + .2])
     ax2.set_xlim([-(axlim + .2), axlim + .2])
     ax3.set_ylim([-(axlim + .2), axlim + .2])
 
-    ax1.set_xticks(range(-axlim, axlim+1))
-    ax1.set_yticks(range(-axlim, axlim+1))
     ax2.set_xticks(range(-axlim, axlim+1))
     ax3.set_yticks(range(-axlim, axlim+1))
+    ax1.set_xticks(range(-axlim, axlim+1))
+    ax1.set_yticks(range(-axlim, axlim+1))
     
-    ax1.legend(loc='best', ncol=4)
+    leg1 = ax1.legend(handles=handles, labels=labels, loc=3, ncol=4)
+    leg2 = ax1.legend(handles=[medline, stdline, pixbox],
+                      labels=['median', 'stddev', 'single pixel'],
+                      loc=1)
+    ax1.add_artist(leg1)
+    ax1.add_artist(leg2)
     
     # fig.savefig('vastp1_astrometry.png', dpi=300, bbox_inches='tight')
     plt.show()
