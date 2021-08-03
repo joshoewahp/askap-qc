@@ -1,6 +1,5 @@
 #!/usr/env/bin python
 
-import os
 import re
 import logging
 import numpy as np
@@ -45,7 +44,7 @@ class Crossmatch:
                            self.df.shape[0])
 
     def _perform_crossmatch(self):
-        idx, d2d, d3d = self.base_cat.coords.match_to_catalog_sky(self.comp_cat.coords)
+        idx, d2d, _ = self.base_cat.coords.match_to_catalog_sky(self.comp_cat.coords)
         matches = self.comp_cat.sources.iloc[idx].reset_index(drop=True)
         self.df = self.base_cat.sources.copy(deep=True)
 
@@ -69,10 +68,11 @@ class Crossmatch:
         avg_ra, avg_dec = self._get_avg_coords(prefix)
         avg_coord = SkyCoord(ra=avg_ra, dec=avg_dec, unit=u.deg)
         cat_coord = SkyCoord(ra=catalog.sources.ra, dec=catalog.sources.dec, unit=u.deg)
-        idx, d2d, d3d = avg_coord.match_to_catalog_sky(cat_coord)
+        idx, d2d, _ = avg_coord.match_to_catalog_sky(cat_coord)
         matches = catalog.sources.reset_index(drop=True)
         comp_cols = {c: '{}_{}'.format(catalog.name, c) for c in matches.columns}
         matches.rename(columns=comp_cols, inplace=True)
+
         self.df['idx'] = idx
         self.df['d2d'] = d2d.arcsec
         self.df = self.df.merge(matches, left_on='idx', right_index=True)
@@ -83,7 +83,7 @@ class Crossmatch:
         self.df.drop(columns=['d2d', 'idx'], inplace=True)
         assert len(self.df) > 0, "No sufficient crossmatches in this field."
 
-    def _get_avg_coords(self, prefix):
+    def _get_avg_coords(self, prefix: str) -> tuple[float, float]:
         ra_cols, dec_cols = self._get_coord_cols(prefix)
 
         tempdf = self.df.copy()[ra_cols + dec_cols]
@@ -100,7 +100,7 @@ class Crossmatch:
 
         return tempdf.avg_ra, tempdf.avg_dec
 
-    def _get_coord_cols(self, prefix):
+    def _get_coord_cols(self, prefix: str) -> list[str]:
         ra_pattern = re.compile(f'{prefix}\d*x*_ra')
         dec_pattern = re.compile(f'{prefix}\d*x*_dec')
 
@@ -109,10 +109,8 @@ class Crossmatch:
 
         return ra_cols, dec_cols
 
-    def _get_offsets(self, avg=False, epoch=None, prefix='vastp'):
-        """
-        Calculate and assign RA and Dec offsets between base_cat and comp_cat.
-        """
+    def _get_offsets(self, avg: bool = False, epoch: str = None, prefix: str = 'vastp') -> tuple[np.array, np.array]:
+        """Calculate and assign RA and Dec offsets between base_cat and comp_cat."""
         
         if not avg:
             self.basecoords = SkyCoord(ra=self.df['{}_ra'.format(self.base_cat.name)],
@@ -154,7 +152,7 @@ class Crossmatch:
 
             return ra_offset, dec_offset
 
-    def _get_flux_ratios(self, avg=False, epoch=None, prefix='vastp'):
+    def _get_flux_ratios(self, avg: bool = False, epoch: str = None, prefix: str = 'vastp') -> tuple[np.array, np.array]:
 
         # ICRF has no flux density measurements, and is used only for astrometry
         if self.base_cat == 'icrf':
@@ -166,8 +164,8 @@ class Crossmatch:
         if avg:
             int_pattern = re.compile(f'{prefix}\d*x*_flux_int')
             peak_pattern = re.compile(f'{prefix}\d*x*_flux_peak')
-            int_cols = ['racs_flux_int'] + list(filter(st_pattern.match, self.df.columns))
-            peak_cols = ['racs_flux_peak'] + list(filter(sp_pattern.match, self.df.columns))
+            int_cols = ['racs_flux_int'] + list(filter(int_pattern.match, self.df.columns))
+            peak_cols = ['racs_flux_peak'] + list(filter(peak_pattern.match, self.df.columns))
 
             if epoch is None:
                 med_flux_int = np.nanmedian(self.df[int_cols], axis=1)
@@ -211,7 +209,7 @@ class Crossmatch:
 
             return 
     
-    def save(self, outdir):
+    def save(self, outdir: str):
         if self.performed:
             self.df.to_csv(f'{outdir}/{self.base_cat.name}-{self.comp_cat.name}.csv', index=False)
         else:

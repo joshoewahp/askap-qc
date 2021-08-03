@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from astropy import wcs
 from astropy.coordinates import SkyCoord, Angle
-from astropy.io import fits, votable
+from astropy.io import fits
 from astroquery.vizier import Vizier
 from dataclasses import dataclass
 from fileio import load_selavy_file
@@ -58,7 +58,7 @@ class Region:
                       '2219-43', '2220-62', '2246-50', '2253-43', '2256-56',],
                 '5': ['1724-31', '1739-25', '1752-31', '1753-18', '1806-25',],
                 '6': ['0127-73'],
-                }
+            }
 
         elif self.band =='mid':
             self.regions = {
@@ -124,7 +124,7 @@ class Epoch:
 
 class Image:
 
-    def __init__(self, filepair, refcat, load_data=True, **kwargs):
+    def __init__(self, filepair, refcat, load_data=True):
         self.imagepath = filepair.image
         self.selavypath = filepair.selavy
         pattern = re.compile(r'\S*(\d{4}[+-]\d{2}[AB])\S*')
@@ -143,7 +143,7 @@ class Image:
         self.epoch = pattern.sub(r'\2', self.name)
         self.polarisation = pattern.sub(r'\3', self.name)
 
-    def _load(self, load_data):
+    def _load(self, load_data: bool):
         with fits.open(self.imagepath) as hdul:
             self.header = hdul[0].header
             self.data = hdul[0].data if load_data else None
@@ -173,7 +173,7 @@ class Image:
         self.edgeradius = self.fieldcentre.separation(self.edge)
         self.cornerradius = self.fieldcentre.separation(self.corner)
 
-    def get_catalogue(self, catalogue, boundary_value='nan', **kwargs):
+    def get_catalogue(self, catalogue: str) -> pd.DataFrame:
         """Query Vizier for catalogue sources within field coverage."""
         cat_ids = {"SUMSS": "VIII/81B/sumss212",
                    "NVSS": "VIII/65/nvss",
@@ -287,7 +287,7 @@ class Image:
 
         return vizier_df
 
-    def _get_field_positions(self):
+    def _get_field_positions(self) -> tuple[np.array, np.array, np.array]:
         """Calculate coordinates of field centre, horizontal edge, and corner."""
 
         if self.size_x >= self.size_y:
@@ -330,3 +330,4 @@ class Image:
             matches = matches[~np.isnan(self.data[matches.pix_y, matches.pix_x])]
 
         return matches.drop(columns=['pix_x', 'pix_y'])
+

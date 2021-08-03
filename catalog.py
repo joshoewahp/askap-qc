@@ -1,9 +1,7 @@
 #!/usr/env/bin python
 
-import os
 import logging
 import astropy.units as u
-import numpy as np
 import pandas as pd
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
@@ -25,7 +23,7 @@ class ReferenceCatalog:
     def __init__(self, catpath: Path):
         self._set_reference_catalogue(catpath)
 
-    def _set_reference_catalogue(self, catpath):
+    def _set_reference_catalogue(self, catpath: str) -> pd.DataFrame:
 
         if 'RACS' in catpath:
 
@@ -152,6 +150,6 @@ class Catalog:
 
     def _get_dist_to_neighbour(self):
         coords = SkyCoord(ra=self.sources.ra, dec=self.sources.dec, unit=u.deg)
-        idx, d2d, d3d = coords.match_to_catalog_sky(coords, nthneighbor=2)
+        _, d2d, _ = coords.match_to_catalog_sky(coords, nthneighbor=2)
 
         self.sources['d2neighbour'] = d2d.arcsec

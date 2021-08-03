@@ -1,8 +1,9 @@
 import pandas as pd
 from astropy.table import Table
+from pathlib import Path
 
-
-def load_selavy_file(selavypath):
+def load_selavy_file(selavypath: Path) -> pd.DataFrame:
+    """Import selavy catalogue to pandas DataFrame."""
 
     # Handle loading of multiple source file formats
     if selavypath.suffix in ['.xml', '.vot']:

@@ -1,5 +1,4 @@
 import click
-import glob
 import os
 import time
 import logging
@@ -7,10 +6,7 @@ from askap import Epoch, Filepair
 from logger import setupLogger
 from matching import match_cats
 from pathlib import Path
-<<<<<<< HEAD
-=======
 from catalog import ReferenceCatalog
->>>>>>> updates
 
 from astropy.units import UnitsWarning
 import warnings

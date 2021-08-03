@@ -1,7 +1,7 @@
 import colorlog
 import logging
 
-def setupLogger(verbose, extra_verbose=False, filename=None):
+def setupLogger(verbose: bool, extra_verbose: bool = False, filename: str = None):
 
     level = logging.DEBUG if verbose else logging.INFO
     root_logger = logging.getLogger()
