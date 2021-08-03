@@ -10,6 +10,7 @@ from askap import Epoch, Filepair
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from logger import setupLogger
 from matching import match_cats
+from pathlib import Path
 
 from astropy.units import UnitsWarning
 import warnings
@@ -60,7 +61,7 @@ def main(dataset, epoch, field, refcat, combined, stokes, maxoffset,
         if regions:
             logger.warning("Region selections currently limited to one band")
 
-        epochs = sorted(glob.glob(dataset + wildcard))
+        epochs = sorted(Path(dataset).glob(wildcard))
         epochs = [Epoch(epoch, tiletype, stokes, regions, band) for epoch in epochs]
     elif epoch and os.path.exists(epoch):
         epochs = [Epoch(epoch, tiletype, stokes, regions, band)]
