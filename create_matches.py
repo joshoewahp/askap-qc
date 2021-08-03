@@ -3,11 +3,7 @@ import glob
 import os
 import time
 import logging
-import pandas as pd
-from astropy.table import Table
-from astropy.time import Time
 from askap import Epoch, Filepair
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from logger import setupLogger
 from matching import match_cats
 from pathlib import Path
@@ -102,6 +98,7 @@ def main(dataset, epoch, field, refcat, combined, stokes, maxoffset,
 
 if __name__ == '__main__':
     t1 = time.time()
+
     try:
         main()
     except Exception as e:

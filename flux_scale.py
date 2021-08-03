@@ -16,7 +16,10 @@ MARKERS = ['d'] * len(COLORS)
 
 logger = logging.getLogger(__name__)
 
+
 @click.command()
+@click.option('-f', '--fluxtype', type=click.Choice(['peak', 'int']), default='{fluxtype}',
+              help='Option to compare {fluxtype} or integrated fluxes.')
 @click.option('-b', '--bins', default=150,
               help='Number of bins in offset histograms.')
 @click.option('-m', '--matchdir', default='matches/VASTP1/', type=click.Path(),
@@ -33,7 +36,7 @@ logger = logging.getLogger(__name__)
               help='Upper bound on plotted flux ratio.')
 @click.option('-v', '--verbose', is_flag=True, default=False,
               help="Enable verbose logging.")
-def main(bins, matchdir, rms, regions, survey, snrlim, ylim, verbose):
+def main(fluxtype, bins, matchdir, rms, regions, survey, snrlim, ylim, verbose):
 
     setupLogger(verbose)
 
@@ -62,40 +65,44 @@ def main(bins, matchdir, rms, regions, survey, snrlim, ylim, verbose):
             files = [f for field in fields for f in files if field in f]
         
         fluxes = pd.concat([pd.read_csv(f) for f in files])
-        fluxes = fluxes[fluxes.askap_flux_peak / fluxes.askap_rms_image > snrlim]
+        fluxes = fluxes[fluxes[f'askap_flux_{fluxtype}'] / fluxes.askap_rms_image > snrlim]
         fluxes.insert(0, 'epoch', epoch)
         all_epochs.append(fluxes)
 
-        ax1.axhline(fluxes.flux_peak_ratio.median(), ls=':',
-                    color=color, zorder=10,
-                    label=f'{epoch} Median: {fluxes.flux_peak_ratio.median():.2f}')
+        epochmedian = fluxes[f'flux_{fluxtype}_ratio'].median()
+        ax1.axhline(epochmedian,
+                    ls=':',
+                    color=color,
+                    zorder=10,
+                    label=f'{epoch} Median: {epochmedian:.2f}')
 
     all_epochs = pd.concat(all_epochs)
-    all_epochs['flux_peak_ratio'] = 1 / all_epochs.flux_peak_ratio
+    all_epochs['flux_{fluxtype}_ratio'] = 1 / all_epochs[f'flux_{fluxtype}_ratio']
 
     med_maj = all_epochs.askap_maj_axis.median()
     med_min = all_epochs.askap_min_axis.median()
     bmaj = 15
     bmin = 12
-    med_ratio = all_epochs.flux_peak_ratio.median()
-    std_ratio = all_epochs.flux_peak_ratio.std()
-   
-    all_epochs.to_csv(f'vastp1_reg3-4_{s}_fluxes.csv')
+    med_ratio = all_epochs[f'flux_{fluxtype}_ratio'].median()
+    std_ratio = all_epochs[f'flux_{fluxtype}_ratio'].std()
 
     unique = all_epochs.drop_duplicates(subset=[f'{survey}_ra', f'{survey}_dec'])
-    logger.info(f"{len(unique)} unique sources" )
+    logger.info(f"{len(unique)} unique sources")
     logger.info(f'{len(all_epochs)} sources used')
 
-    all_epochs = all_epochs[all_epochs.flux_peak_ratio < ylim]
+    logger.info(f"Median flux density ratio of {med_ratio:.2f} +- {std_ratio:.2f}")
 
-    ax1.scatter(all_epochs[f'{s}_flux_peak'],
-                all_epochs.flux_peak_ratio, 
+    all_epochs = all_epochs[all_epochs[f'flux_{fluxtype}_ratio'] < ylim]
+
+    ax1.scatter(all_epochs[f'{s}_flux_{fluxtype}'],
+                all_epochs[f'flux_{fluxtype}_ratio'],
                 color='k', s=2, alpha=0.1, zorder=10)
-    ax2.hist(all_epochs.flux_peak_ratio, histtype='step', color='k', bins=bins,
+    ax2.hist(all_epochs[f'flux_{fluxtype}_ratio'], histtype='step', color='k', bins=bins,
              orientation='horizontal')
 
     if rms:
-        xaxis = np.linspace(all_epochs.askap_flux_peak.min(), all_epochs.askap_flux_peak.max(), 100000)
+        xaxis = np.linspace(all_epochs[f'askap_flux_{fluxtype}'].min(),
+                            all_epochs[f'askap_flux_{fluxtype}'].max(), 100000)
         snr_unc = xaxis / med_ratio * np.sqrt(
             (std_ratio/med_ratio)**2 + (np.sqrt(2 * xaxis ** 2 / (med_maj * med_min * (xaxis/rms)**2 / (4 * bmaj * bmin)))/xaxis**2))
         yaxis = (xaxis + snr_unc) / xaxis

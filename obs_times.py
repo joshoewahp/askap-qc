@@ -13,6 +13,7 @@ from logger import setupLogger
 
 logger = logging.getLogger(__name__)
 
+
 @click.command()
 @click.option('-d', '--dataset', type=click.Path(),
               help='Run for all images and epochs at this Path.')
@@ -31,40 +32,34 @@ def main(dataset, regions, verbose):
 
     fields = Region(regions).fields
 
-    if not os.path.exists('matches/field_times.csv'):
+    df = pd.DataFrame()
+    epochs = []
+    for epoch in sorted(os.listdir(dataset)):
 
-        df = pd.DataFrame()
-        epochs = []
-        for epoch in sorted(os.listdir(dataset)):
+        if epoch == 'EPOCH00' or 'EPOCH' not in epoch:
+            continue
 
-            if epoch == 'EPOCH00' or 'EPOCH' not in epoch:
-                continue
+        epochs.append(epoch)
 
-            epochs.append(epoch)
+        imagepath = f"{epoch}/COMBINED/STOKESI_IMAGES/*.fits"
+        files = sorted(glob.glob(dataset + imagepath))
+        images = [f for field in fields for f in files if field in f]
 
-            imagepath = f"{epoch}/COMBINED/STOKESI_IMAGES/*.fits"
-            files = sorted(glob.glob(dataset + imagepath))
-            images = [f for field in fields for f in files if field in f]
+        times = dict()
+        for i, image in enumerate(images):
+            name = image.split('/')[-1].split('.')[0]
+            hdul = fits.open(image)
 
-            times = dict()
-            for i, image in enumerate(images):
-                name = image.split('/')[-1].split('.')[0]
-                hdul = fits.open(image)
+            header = hdul[0].header
+            times[name] = Time(header.get('MJD-OBS'), format='mjd').datetime
 
-                header = hdul[0].header
-                times[name] = Time(header.get('MJD-OBS'), format='mjd').datetime
+        epochdf = pd.DataFrame.from_dict({epoch: times})
+        df = pd.concat([df, epochdf], axis=1)
 
-            epochdf = pd.DataFrame.from_dict({epoch: times})
-            df = pd.concat([df, epochdf], axis=1)
-
-        df = df.reset_index().rename(columns={'index': 'Field'})
-            
-        df.to_csv('matches/field_times.csv', index=False)
-    
-    df = pd.read_csv('matches/field_times.csv')
+    df = df.reset_index().rename(columns={'index': 'Field'})
 
     logger.info(f'\n{df}')
-   
+
 
 if __name__ == '__main__':
     main()
