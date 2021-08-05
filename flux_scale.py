@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 @click.command()
-@click.option('-f', '--fluxtype', type=click.Choice(['peak', 'int']), default='{fluxtype}',
+@click.option('-f', '--fluxtype', type=click.Choice(['peak', 'int']), default='peak',
               help='Option to compare {fluxtype} or integrated fluxes.')
 @click.option('-b', '--bins', default=150,
               help='Number of bins in offset histograms.')
@@ -77,7 +77,7 @@ def main(fluxtype, bins, matchdir, rms, regions, survey, snrlim, ylim, verbose):
                     label=f'{epoch} Median: {epochmedian:.2f}')
 
     all_epochs = pd.concat(all_epochs)
-    all_epochs['flux_{fluxtype}_ratio'] = 1 / all_epochs[f'flux_{fluxtype}_ratio']
+    all_epochs[f'flux_{fluxtype}_ratio'] = 1 / all_epochs[f'flux_{fluxtype}_ratio']
 
     med_maj = all_epochs.askap_maj_axis.median()
     med_min = all_epochs.askap_min_axis.median()

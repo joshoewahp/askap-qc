@@ -16,11 +16,11 @@ MARKERS = ['d'] * len(COLORS)
 logger = logging.getLogger(__name__)
 
 @click.command()
-@click.option('-a', '--axlim', default=3, type=int,
+@click.option('-a', '--axlim', default=4, type=int,
               help='Axis range in arcsec.')
-@click.option('-A', '--alpha', default=0.3, type=float,
+@click.option('-A', '--alpha', default=None, type=float,
               help='Alpha for scatter points.')
-@click.option('-b', '--bins', default=50,
+@click.option('-b', '--bins', default=None,
               help='Number of bins in offset histograms.')
 @click.option('-S', '--snrlim', default=10,
               help='Lower bound on source SNR.')
@@ -44,6 +44,11 @@ def main(axlim, alpha, bins, matchdir, snrlim, regions, survey, verbose):
     ax1 = fig.add_subplot(gs[1:, :3]) # offsets
     ax2 = fig.add_subplot(gs[0, :3]) # ra hist
     ax3 = fig.add_subplot(gs[1:, 3]) # dec hist
+
+    if not bins:
+        bins = 250 if survey == 'racs' else 30
+    if not alpha:
+        alpha = 0.03 if survey == 'racs' else 0.3
 
     ax1.set_xlabel('RA Offset (arcsec)')
     ax1.set_ylabel('Dec Offset (arcsec)')
@@ -123,7 +128,7 @@ def main(axlim, alpha, bins, matchdir, snrlim, regions, survey, verbose):
     ax2.axvline(med_ra - std_ra, ls=':', alpha=0.5, zorder=5, color='r')
     ax3.axhline(med_dec - std_dec, ls=':', alpha=0.5, zorder=5, color='r')
     
-    logger.info(f'Matching to {len(all_epochs)} {survey.upper()} sources.')
+    logger.info(f'Matching to {len(all_epochs)} {survey.upper()} measurements with SNR > {snrlim}')
     unique = all_epochs.drop_duplicates(subset=[f'{survey}_ra', f'{survey}_dec'])
 
     logger.info(f"{len(unique)} unique sources" )

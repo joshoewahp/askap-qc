@@ -8,10 +8,6 @@ from matching import match_cats
 from pathlib import Path
 from catalog import ReferenceCatalog
 
-from astropy.units import UnitsWarning
-import warnings
-warnings.filterwarnings('ignore', category=UnitsWarning, append=True)
-
 logger = logging.getLogger(__name__)
 
 
@@ -76,7 +72,7 @@ def main(dataset, epoch, field, refcat, combined, stokes, maxoffset,
 
             outdir = f'matches/{savedir}/{epoch.name}'
             os.makedirs(outdir, exist_ok=True)
-            logger.info(f"Processing {epoch.num_images} images in {epoch}")
+            logger.info(f"Processing {epoch.num_files} images in {epoch}")
             logger.info(f'Saving output to {outdir}')
 
             for files in epoch.files:
