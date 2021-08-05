@@ -74,9 +74,7 @@ def main(axlim, alpha, bins, matchdir, snrlim, regions, survey, verbose):
     labels = []
     for color, marker, epoch in zip(COLORS, MARKERS, epochs):
 
-        s = 'askap' if survey in ['racs', 'ref'] else survey
-        files = glob.glob(f'{matchdir}/{epoch}/*{s}.csv')
-
+        files = glob.glob(f'{matchdir}/{epoch}/*{survey}-askap.csv')
         if regions:
             files = [f for field in fields for f in files if field in f]
 

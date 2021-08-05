@@ -16,22 +16,21 @@ def match_cats(files, refcat, maxoffset, isolim, snrlim, outdir):
     catalogs = {}
 
     try:
-        catalogs[refcat.name] = Catalog(image,
-                                        survey_name=refcat.name,
-                                        isolim=isolim,
-                                        snrlim=snrlim)
-    except AssertionError as e:
-        logger.kxception(e)
-
-    try:
         catalogs['askap'] = Catalog(image,
                                     survey_name='askap',
                                     isolim=isolim,
                                     snrlim=snrlim,
                                     selavy_path=files.selavy)
-
     except AssertionError as e:
         logger.debug(e)
+
+    try:
+        catalogs[refcat.name] = Catalog(image,
+                                        survey_name=refcat.name,
+                                        isolim=isolim,
+                                        snrlim=snrlim)
+    except AssertionError as e:
+        logger.exception(e)
 
     # Try to generate the other catalogues in turn
     try:
@@ -58,18 +57,13 @@ def match_cats(files, refcat, maxoffset, isolim, snrlim, outdir):
     except AssertionError as e:
         logger.debug(e)
 
-    crossmatches = {}
-    cats = [comb for comb in it.combinations(catalogs, 2) if 'askap' in comb or 'icrf' in comb]
+    cats = [comb for comb in it.combinations(catalogs, 2) if 'askap' in comb]
 
     # Try pairwise crossmatches between catalogs
     for cat1, cat2 in cats:
 
         try:
             logger.debug(f"Crossmatching {cat1} with {cat2}.")
-
-            # Skip crossmatches between secondary catalogues
-            if cat2 == 'icrf' and cat1 != 'askap':
-                continue
 
             cm = Crossmatch(catalogs[cat1], catalogs[cat2], maxoffset=maxoffset)
             cm.save(outdir)

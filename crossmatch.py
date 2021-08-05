@@ -119,7 +119,7 @@ class Crossmatch:
             self.compcoords = SkyCoord(ra=self.df['{}_ra'.format(self.comp_cat.name)],
                                        dec=self.df['{}_dec'.format(self.comp_cat.name)],
                                        unit=u.deg)
-            ra_offset, dec_offset = self.compcoords.spherical_offsets_to(self.basecoords)
+            ra_offset, dec_offset = self.basecoords.spherical_offsets_to(self.compcoords)
             self.df['ra_offset'] = ra_offset.arcsec
             self.df['dec_offset'] = dec_offset.arcsec
 
@@ -143,7 +143,7 @@ class Crossmatch:
 
             for r, d in zip(ra_cols, dec_cols):
                 comp_coords = SkyCoord(ra=self.df[r], dec=self.df[d], unit=u.deg)
-                ra_off, dec_off = comp_coords.spherical_offsets_to(avg_coords)
+                ra_off, dec_off = avg_coords.spherical_offsets_to(comp_coords)
                 self.df[f'{r}_offset'] = ra_off.arcsec
                 self.df[f'{d}_offset'] = dec_off.arcsec
 
@@ -212,5 +212,7 @@ class Crossmatch:
     def save(self, outdir: str):
         if self.performed:
             self.df.to_csv(f'{outdir}/{self.base_cat.name}-{self.comp_cat.name}.csv', index=False)
+            fieldname = self.comp_cat.image.fieldname
+            self.df.to_csv(f'{outdir}/{fieldname}_{self.comp_cat.name}-{self.base_cat.name}.csv', index=False)
         else:
             logger.error("Need to perform a cross match first!")
