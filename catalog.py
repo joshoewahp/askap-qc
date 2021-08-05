@@ -35,16 +35,15 @@ class ReferenceCatalog:
                 'N_Gaus': 'N_Gaus',
                 'RA': 'ra',
                 'Dec': 'dec',
+                'E_RA': 'ra_err',
+                'E_Dec': 'dec_err',
                 'Total_flux_Component': 'flux_int',
                 'E_Total_flux_Component': 'flux_int_err',
                 'Peak_flux': 'flux_peak',
                 'E_Peak_flux': 'flux_peak_err',
                 'Maj': 'maj_axis',
-                'E_Maj': 'maj_axis_err',
                 'Min': 'min_axis',
-                'E_Min': 'min_axis_err',
                 'PA': 'pos_ang',
-                'E_PA': 'pos_ang_err',
                 'Separation_Tile_Centre': 'field_centre_dist',
                 'Noise': 'rms_image'
             }
