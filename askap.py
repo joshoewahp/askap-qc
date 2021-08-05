@@ -26,15 +26,19 @@ class Filepair:
 
 class Region:
 
-    def __init__(self, regions: str, band: str = 'low'):
+    def __init__(self, regions: tuple[str], band: str = 'low'):
+        self.regs = regions
         self.band = band
         self._register_fields()
 
-        self.name = '#' + '-'.join([r for r in regions])
+        self.name = '-'.join([r for r in regions])
         self.fields = [f for region in regions for f in self.regions[region]]
 
+    def __str__(self):
+        return f'<Region: {self.band} {self.name}>'
+
     def __repr__(self):
-        return f'Region {self.band}-{self.name}'
+        return f"Region(regions={self.regs}, band='{self.band}')"
 
     def _register_fields(self):
 
@@ -60,7 +64,7 @@ class Region:
                 '6': ['0127-73'],
             }
 
-        elif self.band =='mid':
+        elif self.band == 'mid':
             self.regions = {
                 '1': ['0021+00', '0021-04', '0042+00', '0042-04', '0104+00', '0104-04', '0125+00',
                       '0125-04', '0147+00', '0147-04', '0208+00', '0208-04', '0230+00', '0230-04',
@@ -80,26 +84,44 @@ class Region:
                       '1812-28'],
                 '6': ['0113-72']
             }
+        elif self.band == 'high':
+            raise NotImplementedError("High band not yet available")
+        else:
+            raise ValueError("Must pass band value of 'low', 'mid', or 'high'")
 
 
 class Epoch:
 
-    def __init__(self, rootpath: Path, tiletype: str, stokes: str, regions: str, band: str):
+    def __init__(self, rootpath: Path, tiletype: str, stokes: str, regions: tuple[str], band: str):
         self.rootpath = rootpath
         self.tiletype = tiletype
         self.stokes = stokes
+        self.regs = regions
+        self.band = band
         self.region = Region(regions, band) if regions else None
         self.path = rootpath / tiletype
         self.name = rootpath.parts[-1]
         self._parse_files()
 
-    def __repr__(self):
+    def __str__(self):
         return f'<{self.name}-{self.stokes}-{self.tiletype}>'
+
+    def __repr__(self):
+        return f"Epoch(Path('{self.rootpath}'), tiletype='{self.tiletype}', stokes='{self.stokes}', regions={self.regs}, band='{self.band}')"
 
     def _parse_files(self):
 
-        image_files = list(self.path.glob(f'STOKES{self.stokes}_IMAGES/*{self.stokes}.fits'))
-        selavy_files = list(self.path.glob(f'STOKES{self.stokes}_SELAVY/*components.txt'))
+        if self.tiletype == 'TILES' and self.stokes == 'V':
+            raise NotImplementedError("Stokes V data unavailable for TILES")
+
+        if self.tiletype == 'COMBINED':
+            image_files = list(self.path.glob(f'STOKES{self.stokes}_IMAGES/*{self.stokes}.fits'))
+            selavy_files = list(self.path.glob(f'STOKES{self.stokes}_SELAVY/*components.txt'))
+        elif self.tiletype == 'TILES':
+            image_files = list(self.path.glob(f'STOKES{self.stokes}_IMAGES/*{self.stokes.lower()}*restored.fits'))
+            selavy_files = list(self.path.glob(f'STOKES{self.stokes}_SELAVY/*components.txt'))
+        else:
+            raise ValueError("Must pass tiletype value of COMBINED or TILES")
 
         if self.region:
             self.image_files = [f for field in self.region.fields for f in image_files if field in str(f)]
@@ -117,31 +139,49 @@ class Epoch:
         pattern = re.compile(r'\S*(\d{4}[-+]\d{2}[AB])\S*')
         self.files = [Filepair(im, sel) for im in self.image_files for sel in self.selavy_files if
                       pattern.sub(r'\1', str(sel)) in str(im)]
-        self.num_images = len(self.files)
-        if self.num_images < num_images:
-            logger.warning(f"Only {self.num_images}/{num_images} images have matching selavy file.")
+        self.num_files = len(self.files)
 
 
 class Image:
 
     def __init__(self, filepair, refcat, load_data=True):
+        self.filepair = filepair
         self.imagepath = filepair.image
         self.selavypath = filepair.selavy
-        pattern = re.compile(r'\S*(\d{4}[+-]\d{2}[AB])\S*')
-        self.name = pattern.sub(r'\1', str(self.imagepath))
         self.refcat = refcat
 
         self._parse_name()
         self._load(load_data)
 
+    def __str__(self):
+        return f"<Image: {self.epoch} {self.fieldname} Stokes{self.stokes}>"
+
     def __repr__(self):
-        return "<{} {} Stokes{}>".format(self.epoch, self.fieldname, self.polarisation)
+        return f"<Image: {self.epoch} {self.fieldname} Stokes{self.stokes}>"
 
     def _parse_name(self):
-        pattern = re.compile(r'^(\S*_\d{4}[+-]\d{2}[AB]).(EPOCH\d{2}x*).([IV]).fits')
-        self.fieldname = pattern.sub(r'\1', self.name)
-        self.epoch = pattern.sub(r'\2', self.name)
-        self.polarisation = pattern.sub(r'\3', self.name)
+        pattern = re.compile(r'^\S*_(\d{4}[+-]\d{2}[AB]).(EPOCH\d{2}x*).([IV]).fits')
+        self.fieldname = pattern.sub(r'\1', str(self.imagepath))
+        self.epoch = pattern.sub(r'\2', str(self.imagepath))
+        self.stokes = pattern.sub(r'\3', str(self.imagepath))
+
+        # Use less strict regex if unable to parse fieldname
+        if self.fieldname == str(self.imagepath):
+            pattern = re.compile(r'\S*(\d{4}[+-]\d{2}[AB])\S*')
+            self.fieldname = pattern.sub(r'\1', str(self.imagepath))
+            self.epoch = None
+            self.stokes = None
+
+    def _get_frequency(self):
+        """Read observing frequency from one of multiple FITS header keywords"""
+
+        frequency = self.header.get('RESTFREQ')
+        if frequency:
+            return frequency
+        elif self.header.get('CTYPE3') == 'FREQ':
+            return self.header.get('CRVAL3')
+        else:
+            raise KeyError('No RESTFREQ or CRVAL3 keywords found in header')
 
     def _load(self, load_data: bool):
         with fits.open(self.imagepath) as hdul:
@@ -150,8 +190,7 @@ class Image:
 
         self.wcs = wcs.WCS(self.header, naxis=2)
         self.sbid = self.header.get('SBID')
-        self.frequency = self.header.get('CRVAL3') if self.header.get('CTYPE3') == 'FREQ' else None
-        self.frequency = self.header.get('RESTFREQ', self.frequency)
+        self.frequecy = self._get_frequency()
         self.bmaj = self.header.get('BMAJ')
         self.bmin = self.header.get('BMIN')
         self.bpa = self.header.get('BPA')
@@ -165,13 +204,7 @@ class Image:
         self.bcr_dec = self.header.get('CRVAL2')
 
         # Coordinates of field centre, nearest edge, and top right corner.
-        centre, edge, corner = self._get_field_positions()
-        self.cr_ra, self.cr_dec = centre[0][0], centre[0][1]
-        self.fieldcentre = SkyCoord(ra=self.cr_ra, dec=self.cr_dec, unit=u.deg)
-        self.edge = SkyCoord(ra=edge[0][0], dec=edge[0][1], unit=u.deg)
-        self.corner = SkyCoord(ra=corner[0][0], dec=corner[0][1], unit=u.deg)
-        self.edgeradius = self.fieldcentre.separation(self.edge)
-        self.cornerradius = self.fieldcentre.separation(self.corner)
+        self._set_field_positions()
 
     def get_catalogue(self, catalogue: str) -> pd.DataFrame:
         """Query Vizier for catalogue sources within field coverage."""
@@ -208,11 +241,12 @@ class Image:
 
         assert search_cat is not None, "{} not recognised as Vizier catalogue.".format(catalogue)
 
-        v = Vizier(columns=["_r", "_RAJ2000", "_DEJ2000", "**"], row_limit=-1)
+        v = Vizier(columns=["_r", "_RAJ2000", "_DEJ2000", "PA", "*"], row_limit=-1)
 
         result = v.query_region(self.fieldcentre,
                                 radius=self.cornerradius * 1.1,
                                 catalog=search_cat)
+
         try:
             assert len(result.keys()) > 0, "No {} sources located in this field.".format(catalogue)
         except AssertionError:
@@ -220,10 +254,10 @@ class Image:
 
         vizier_df = pd.concat((result[cat].to_pandas() for cat in result.keys()), sort=False)
         matches = self._clean_matches(catalogue, vizier_df)
-        self.matches = self._trim_to_field(matches)
-        assert len(self.matches) > 0, "No {} sources located in this field.".format(catalogue)
+        matches = self._trim_to_field(matches)
+        assert len(matches) > 0, "No {} sources located in this field.".format(catalogue)
 
-        return self.matches
+        return matches
 
     def _clean_matches(self, catalogue: str, vizier_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -239,10 +273,9 @@ class Image:
                              inplace=True)
 
             # Convert RA errors from hms seconds -> degrees
-            vizier_df['ra_err'] = Angle((0, 0, vizier_df['ra_err']),
-                                        unit=u.hour).degree
+            vizier_df['ra_err'] = Angle((0, 0, vizier_df['ra_err']), unit=u.hour).degree
 
-            # No peak flux provided, replace with NaN
+            # No peak flux, rms, or beam errors provided
             vizier_df['flux_peak'] = np.nan
             vizier_df['flux_peak_err'] = np.nan
             vizier_df['rms_image'] = 0.45
@@ -255,7 +288,7 @@ class Image:
                                       'e_RAJ2000': 'ra_err', 'e_DEJ2000': 'dec_err'},
                              inplace=True)
 
-            # No peak flux provided, replace with NaN
+            # No peak flux or beam errors provided
             vizier_df['flux_peak'] = np.nan
             vizier_df['flux_peak_err'] = np.nan
 
@@ -287,21 +320,32 @@ class Image:
 
         return vizier_df
 
-    def _get_field_positions(self) -> tuple[np.array, np.array, np.array]:
+    def _find_nearest_edge(self):
+        """Check pixel dimensions to select pixel coordinates of nearest edge"""
+
+        if self.size_x <= self.size_y:
+            edge_pixel_coords = np.array([[self.size_x, self.size_y / 2.]])
+        else:
+            edge_pixel_coords = np.array([[self.size_x / 2., self.size_y]])
+
+        return edge_pixel_coords
+    
+    def _set_field_positions(self):
         """Calculate coordinates of field centre, horizontal edge, and corner."""
 
-        if self.size_x >= self.size_y:
-            edge = np.array([[self.size_x, self.size_y / 2.]])
-        else:
-            edge = np.array([[self.size_x / 2., self.size_y]])
-
-        edge = self.wcs.wcs_pix2world(edge, 1)
+        edge_pixel_coords = self._find_nearest_edge()
+        edge = self.wcs.wcs_pix2world(edge_pixel_coords, 1)
         centre = np.array([[self.size_x / 2., self.size_y / 2.]])
         centre = self.wcs.wcs_pix2world(centre, 1)
         corner = np.array([[self.size_x, self.size_y]])
         corner = self.wcs.wcs_pix2world(corner, 1)
-
-        return centre, edge, corner
+        
+        self.cr_ra, self.cr_dec = centre[0][0], centre[0][1]
+        self.fieldcentre = SkyCoord(ra=self.cr_ra, dec=self.cr_dec, unit=u.deg)
+        edge_coord = SkyCoord(ra=edge[0][0], dec=edge[0][1], unit=u.deg)
+        corner_coord = SkyCoord(ra=corner[0][0], dec=corner[0][1], unit=u.deg)
+        self.edgeradius = self.fieldcentre.separation(edge_coord)
+        self.cornerradius = self.fieldcentre.separation(corner_coord)
 
     def _trim_to_field(self, matches: pd.DataFrame) -> pd.DataFrame:
         """Remove any matches with coordinates outside the NaN boundary."""
@@ -313,13 +357,13 @@ class Image:
                           (matches.dec > self.cr_dec - dist) &
                           (matches.dec < self.cr_dec + dist)].copy()
 
-        raw_coords = [[row.ra, row.dec] for i, row in matches.iterrows()]
+        # Trim to image pixel size so data can be indexed
+        raw_coords = [[row.ra, row.dec] for _, row in matches.iterrows()]
         pixel_coords = self.wcs.wcs_world2pix(raw_coords, 1)
 
-        matches.loc[:, 'pix_x'] = pixel_coords[:, 0].astype(np.int)
-        matches.loc[:, 'pix_y'] = pixel_coords[:, 1].astype(np.int)
+        matches.loc[:, 'pix_x'] = pixel_coords[:, 0].astype(int)
+        matches.loc[:, 'pix_y'] = pixel_coords[:, 1].astype(int)
 
-        # Trim to image pixel size so data can be indexed
         matches = matches[(matches.pix_x.between(1, self.size_x - 1)) &
                           (matches.pix_y.between(1, self.size_y - 1))]
 
