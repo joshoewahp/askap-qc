@@ -1,16 +1,29 @@
-#!/usr/env/bin python
-
 import logging
+import os
 import astropy.units as u
+import numpy as np
 import pandas as pd
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
+from dataclasses import dataclass
+
 from askap import Image
 from fileio import load_selavy_file
 from pathlib import Path
 
-
 logger = logging.getLogger(__name__)
+
+
+def get_RACS_path(system):
+    
+    if system == 'vast-data':
+        racs_path = '/home/joshoewahp/RACS-25asec-Mosaiced_Gaussians_Final_GalCut_v2021_03_01.fits'
+    elif system == 'ada.physics.usyd.edu.au':
+        racs_path = '/import/ada1/jpri6587/data/RACS-25asec-Mosaiced_Gaussians_Final_GalCut_v2021_03_01.fits'
+    else:
+        raise SystemExit("RACS / reference catalogue must be manually specified with --refcat (-R) unless on ada or nimbus.")
+
+    return racs_path
 
 
 class ReferenceCatalog:
@@ -18,14 +31,25 @@ class ReferenceCatalog:
 
     catpath should point either to the published RACS catalogue
     as an astropy table or a raw selavy component catalogue
+
+    RACS catalogue will be automatically detected with catpath=None 
+    if on ada or nimbus
     """
 
-    def __init__(self, catpath: Path):
+    def __init__(self, catpath: Path = None):
+
+        system = os.uname()[1]
+        if not catpath:
+            catpath = get_RACS_path(system)
+
         self._set_reference_catalogue(catpath)
 
-    def _set_reference_catalogue(self, catpath: str) -> pd.DataFrame:
+    def _set_reference_catalogue(self, catpath: Path) -> pd.DataFrame:
 
-        if 'RACS' in catpath:
+        if isinstance(catpath, str):
+            catpath = Path(catpath)
+
+        if 'RACS' in catpath.name:
 
             # Get RACS catalogue as base
             self.name = 'racs'
@@ -51,56 +75,56 @@ class ReferenceCatalog:
         else:
 
             self.name = 'ref'
+
             refcat = load_selavy_file(catpath)
+            refcat['N_Gaus'] = np.nan
+            refcat['field_centre_dist'] = np.nan
             refcat = refcat.rename(columns={'ra_deg_cont': 'ra',
                                             'dec_deg_cont': 'dec'})
 
         self.sources = refcat
 
 
+@dataclass
 class Catalog:
     """Catalogue of high quality selavy components for comparative image quality analysis"""
 
-    def __init__(self, image: Image, survey_name: str, **kwargs):
+    image: Image
+    survey_name: str
+    frequency: float = None
+    isolationlim: float = 150
+    snrlim: float = 0
+    
+    def __post_init__(self):
+        if not self.frequency:
+            self.frequency = self.image.frequency
+        self.sources = self.image.get_catalogue(self.survey_name.upper())
 
-        self.image = image
-        self.name = survey_name
-        self.frequency = kwargs.get('frequency', self.image.frequency)
-        self.isolationlim = kwargs.get('isolationlim', 45)
-        self.snrlim = kwargs.get('snrlim', 0)
-
-        logger.debug(f"Creating {self.name.upper()} Catalogue")
-        self.sources = self.image.get_catalogue(self.name.upper())
-        logger.debug(f"{len(self.sources)} {self.name.upper()} sources in field.")
+        logger.debug(f"{len(self.sources)} {self.survey_name.upper()} sources in field.")
+        logger.debug(f"Creating {self.survey_name.upper()} Catalogue")
 
         self._filter_isolated()
         self._filter_snr()
         self._filter_extended()
 
-        logger.debug(f"{len(self.sources)} {self.name.upper()} sources after filtering.")
+        logger.debug(f"{len(self.sources)} {self.survey_name.upper()} sources after filtering.")
 
         if len(self.sources) == 0:
-            msg = f"No remaining {self.name.upper()} sources in field {self.image.name}."
+            msg = f"No remaining {self.survey_name.upper()} sources in field {self.image.fieldname}."
             raise AssertionError(msg)
 
         self._create_coords()
         self._add_distance_from_pos(self.image.fieldcentre)
 
-    def __repr__(self):
-        name = "<{}({}): {} sources>"
-        return name.format(__class__.__name__, self.name, len(self.sources))
 
     def _add_distance_from_pos(self, position, label="centre"):
         self.sources["dist_{}".format(label)] = position.separation(self.coords).deg
-
-    def _add_name_col(self):
-        self.sources['name'] = self.coords.to_string('hmsdms').str.replace(' ', '_')
 
     def _create_coords(self):
         self.coords = SkyCoord(ra=self.sources.ra, dec=self.sources.dec, unit=u.deg)
 
     def _filter_extended(self):
-        if self.name not in ['racs', 'ref']:
+        if self.survey_name not in ['racs', 'ref']:
             return
 
         initial = len(self.sources)
@@ -115,13 +139,13 @@ class Catalog:
             ((int_peak_ratio - 1.025) * SNR**0.62 < 0.69)
         ].reset_index(drop=True)
 
-        if self.name == 'racs':
+        if self.survey_name == 'racs':
             self.sources = self.sources[
                 (self.sources.N_Gaus == 1)
             ].reset_index(drop=True)
 
         self.n_extended = initial - len(self.sources)
-        logger.debug(f'{self.n_extended} {self.name.upper()} sources removed with extended filter')
+        logger.debug(f'{self.n_extended} {self.survey_name.upper()} sources removed with extended filter')
 
     def _filter_isolated(self):
 
@@ -133,10 +157,10 @@ class Catalog:
             ].reset_index(drop=True)
 
         self.crowded = initial - len(self.sources)
-        logger.debug(f'{self.crowded} {self.name.upper()} sources removed with isolation filter')
+        logger.debug(f'{self.crowded} {self.survey_name.upper()} sources removed with isolation filter')
 
     def _filter_snr(self):
-        if self.name == 'icrf':
+        if self.survey_name == 'icrf':
             return
 
         initial = len(self.sources)
@@ -145,7 +169,7 @@ class Catalog:
             self.sources.flux_int / self.sources.rms_image > self.snrlim].reset_index(drop=True)
 
         self.lowsnr = initial - len(self.sources)
-        logger.debug(f'{self.lowsnr} {self.name.upper()} sources removed with SNR filter')
+        logger.debug(f'{self.lowsnr} {self.survey_name.upper()} sources removed with SNR filter')
 
     def _get_dist_to_neighbour(self):
         coords = SkyCoord(ra=self.sources.ra, dec=self.sources.dec, unit=u.deg)
