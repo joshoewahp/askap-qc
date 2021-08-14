@@ -2,7 +2,7 @@ import click
 import os
 import time
 import logging
-from askap import Epoch, Filepair
+from askap import Epoch, Region, Filepair
 from logger import setupLogger
 from matching import match_cats
 from pathlib import Path
@@ -18,8 +18,7 @@ logger = logging.getLogger(__name__)
               help='Run on all images/selavy within epoch at this Path.')
 @click.option('-f', '--field', type=click.Path(), nargs=2,
               help='Run on single field / selavy at these Paths.')
-@click.option('-R', '--refcat', type=click.Path(),
-              default='RACS-25asec-Mosaiced_Gaussians_Final_GalCut_v2021_03_01.fits',
+@click.option('-R', '--refcat', type=click.Path(), default=None,
               help='Location of reference catalogue table.')
 @click.option('--combined/--no-combined', is_flag=True, default=True,
               help='Flag to use COMBINED mosaics, or otherwise raw TILES.')
@@ -29,8 +28,8 @@ logger = logging.getLogger(__name__)
               help='Maximum positional offset / association radius in arcsec.')
 @click.option('-b', '--band', type=click.Choice(['low', 'mid']), default='low',
               help='Frequency band / footprint for region selections.')
-@click.option('-r', '--regions', multiple=True, default=None,
-              help='Limit run to these Pilot survey regions (band-dependent).')
+@click.option('-r', '--region', multiple=True, default=None,
+              help='Limit run to these Pilot survey region (band-dependent).')
 @click.option('-i', '--isolim', type=float, default=150,
               help='Minimum nearest neighbour distance in arcsec.')
 @click.option('-s', '--snrlim', type=float, default=10,
@@ -42,27 +41,29 @@ logger = logging.getLogger(__name__)
 @click.option('-w', '--wildcard', type=str, default='*EPOCH*',
               help='Regex to mark each epoch in a dataset.')
 def main(dataset, epoch, field, refcat, combined, stokes, maxoffset,
-         band, regions, isolim, snrlim, savedir, verbose, wildcard):
+         band, region, isolim, snrlim, savedir, verbose, wildcard):
 
     setupLogger(verbose, filename='qc.log')
 
     tiletype = 'COMBINED' if combined else 'TILES'
 
+    region = Region(region, band=band)
+
     # Create Epoch objects
     if dataset and os.path.exists(dataset):
-        if regions:
+        if region:
             logger.warning("Region selections currently limited to one band")
 
-        epochs = sorted(Path(dataset).glob(wildcard))
-        epochs = [Epoch(epoch, tiletype, stokes, regions, band) for epoch in epochs]
+        epoch_paths = sorted(Path(dataset).glob(wildcard))
+        epochs = [Epoch(epoch, region, tiletype, stokes, band) for epoch in epoch_paths]
     elif epoch and os.path.exists(epoch):
-        epochs = [Epoch(Path(epoch), tiletype, stokes, regions, band)]
+        epochs = [Epoch(Path(epoch), region, tiletype, stokes, band)]
     elif field:
         epochs = None
     else:
         raise SystemExit("Must pass valid directory to either --dataset (-d), --epoch (-e), or --field (-f).")
 
-    # Get reference catalogue
+    # Get reference catalogue. Use system hostname to determine
     refcat = ReferenceCatalog(refcat)
 
     # Match catalogues for all fields / epochs specified
@@ -72,7 +73,7 @@ def main(dataset, epoch, field, refcat, combined, stokes, maxoffset,
 
             outdir = f'matches/{savedir}/{epoch.name}'
             os.makedirs(outdir, exist_ok=True)
-            logger.info(f"Processing {epoch.num_files} images in {epoch}")
+            logger.info(f"Processing {epoch.num_files} images in {epoch.name}")
             logger.info(f'Saving output to {outdir}')
 
             for files in epoch.files:
