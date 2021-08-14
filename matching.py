@@ -8,27 +8,28 @@ from crossmatch import Crossmatch
 
 logger = logging.getLogger(__name__)
 
-def match_cats(files, refcat, maxoffset, isolim, snrlim, outdir):
+def match_cats(files, refcat, maxoffset, isolationlim, snrlim, outdir):
 
     image = Image(files, refcat=refcat.sources)
-    logger.info(f"Crossmatching {image.name}")
+    logger.info(f"Crossmatching {image}")
 
     catalogs = {}
 
     try:
         catalogs['askap'] = Catalog(image,
                                     survey_name='askap',
-                                    isolim=isolim,
-                                    snrlim=snrlim,
-                                    selavy_path=files.selavy)
+                                    isolationlim=isolationlim,
+                                    snrlim=snrlim)
     except AssertionError as e:
         logger.debug(e)
 
     try:
         catalogs[refcat.name] = Catalog(image,
                                         survey_name=refcat.name,
-                                        isolim=isolim,
+                                        isolationlim=isolationlim,
                                         snrlim=snrlim)
+        print(image)
+        print(catalogs['racs'].sources)
     except AssertionError as e:
         logger.exception(e)
 
@@ -38,7 +39,7 @@ def match_cats(files, refcat, maxoffset, isolim, snrlim, outdir):
                                     survey_name='sumss',
                                     frequency=843.0e6,
                                     snrlim=snrlim,
-                                    isolim=isolim)
+                                    isolationlim=isolationlim)
 
     except AssertionError as e:
         logger.debug(e)
@@ -48,7 +49,7 @@ def match_cats(files, refcat, maxoffset, isolim, snrlim, outdir):
                                    survey_name='nvss',
                                    frequency=1400.0e6,
                                    snrlim=snrlim,
-                                   isolim=isolim)
+                                   isolationlim=isolationlim)
     except AssertionError as e:
         logger.debug(e)
 
@@ -68,7 +69,7 @@ def match_cats(files, refcat, maxoffset, isolim, snrlim, outdir):
             cm = Crossmatch(catalogs[cat1], catalogs[cat2], maxoffset=maxoffset)
             cm.save(outdir)
 
-            logger.debug(f"{len(cm.df)} {cm.comp_cat.name} matches located in {image.name}.")
+            logger.debug(f"{len(cm.matches)} {cm.comp_cat.survey_name} matches located in {image.fieldname}.")
 
         except AssertionError as e:
             logger.debug(e)

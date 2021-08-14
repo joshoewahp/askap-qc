@@ -1,7 +1,4 @@
-#!/usr/bin/env python
-
 import logging
-import os
 import re
 import astropy.units as u
 import numpy as np
@@ -13,101 +10,48 @@ from astroquery.vizier import Vizier
 from dataclasses import dataclass
 from fileio import load_selavy_file
 from pathlib import Path
+from region import LowBandRegion, MidBandRegion
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class Filepair:
+    """Matched pair of a FITS image and associated selavy catalogue."""
 
     image: Path
     selavy: Path
 
 
 class Region:
+    """Simple API to generate VAST regions in a given frequency band."""
+    
+    def __new__(cls, regions: tuple[str], band: str = 'low'):
 
-    def __init__(self, regions: tuple[str], band: str = 'low'):
-        self.regs = regions
-        self.band = band
-        self._register_fields()
-
-        self.name = '-'.join([r for r in regions])
-        self.fields = [f for region in regions for f in self.regions[region]]
-
-    def __str__(self):
-        return f'<Region: {self.band} {self.name}>'
-
-    def __repr__(self):
-        return f"Region(regions={self.regs}, band='{self.band}')"
-
-    def _register_fields(self):
-
-        if self.band == 'low':
-            self.regions = {
-                '1': ['2004+00', '2004-06', '2028+00', '2028-06', '2053+00', '2053-06', '2118+00',
-                      '2118-06', '2143+00', '2143-06', '2208+00', '2208-06', '2257+00', '2257-06',
-                      '2322+00', '2322-06', '2347+00', '2347-06', '2233+00', '2233-06', '0012+00',
-                      '0012-06', '0037+00', '0037-06', '0102+00', '0102-06', '0126+00', '0126-06',
-                      '0151+00', '0151-06', '0216+00', '0216-06', '0241+00', '0241-06', '0306+00',
-                      '0306-06', '0331+00', '0331-06', '0355+00', '0355-06',],
-                '2': ['0918+00', '0918-06', '0943+00', '0943-06', '1008+00', '1008-06', '1033+00',
-                      '1033-06', '1057+00', '1057-06', '1122+00', '1122-06', '1147+00', '1147-06',
-                      '1212+00', '1212-06', '1237+00', '1237-06', '1302+00', '1302-06', '1326+00',
-                      '1326-06', '1351+00', '1351-06', '1416+00', '1416-06', '1441+00', '1441-06',],
-                '3': ['0304-50', '0310-56', '0318-62', '0320-43', '0341-50', '0352-56', '0354-43',
-                      '0408-62', '0418-50', '0427-43', '0435-56', '0455-50', '0457-62', '0501-43',
-                      '0517-56', '0530-68', '0532-50', '0534-43', '0547-62', '0559-56',],
-                '4': ['2005-43', '2007-56', '2018-50', '2039-43', '2041-62', '2049-56', '2055-50',
-                      '2112-43', '2131-56', '2131-62', '2132-50', '2146-43', '2209-50', '2214-56',
-                      '2219-43', '2220-62', '2246-50', '2253-43', '2256-56',],
-                '5': ['1724-31', '1739-25', '1752-31', '1753-18', '1806-25',],
-                '6': ['0127-73'],
-            }
-
-        elif self.band == 'mid':
-            self.regions = {
-                '1': ['0021+00', '0021-04', '0042+00', '0042-04', '0104+00', '0104-04', '0125+00',
-                      '0125-04', '0147+00', '0147-04', '0208+00', '0208-04', '0230+00', '0230-04',
-                      '0251+00', '0251-04', '0313+00', '0313-04', '0334+00', '0334-04', '0352-64',
-                      '0356+00', '0356-04', '2108+00', '2108-04', '2129+00', '2129-04', '2003+00',
-                      '2003-04', '2046+00', '2046-04', '2255+00', '2255-04', '2306-55', '2234+00',
-                      '2234-04', '2317+00', '2317-04', '2338+00', '2338-04', '2359+00', '2359-04' 
-                      '2025+00', '2025-04'],
-                '2': [],
-                '3': ['0438-64', '0504-69', '0525-64', '0559-69'],
-                '4': ['2004-41', '2006-55', '2014-46', '2027-51', '2032-41', '2034-60', '2042-55',
-                      '2044-46', '2054-64', '2059-41', '2059-51', '2114-46', '2115-60', '2118-55',
-                      '2127-41', '2132-51', '2140-64', '2144-46', '2151+00', '2151-04', '2154-55',
-                      '2155-41', '2156-60', '2205-51', '2212+00', '2212-04', '2214-46', '2223-41',
-                      '2227-64', '2230-55', '2237-60', '2238-51', '2244-46', '2250-41'],
-                '5': ['1724-28', '1731-23', '1735-32', '1748-18', '1748-28', '1754-23', '1800-32',
-                      '1812-28'],
-                '6': ['0113-72']
-            }
-        elif self.band == 'high':
+        if band == 'low':
+            return LowBandRegion(regions)
+        if band == 'mid':
+            return MidBandRegion(regions)
+        if band == 'high':
             raise NotImplementedError("High band not yet available")
-        else:
-            raise ValueError("Must pass band value of 'low', 'mid', or 'high'")
 
+        raise ValueError("Must pass band value of 'low', 'mid', or 'high'")
+    
 
+@dataclass
 class Epoch:
+    """Representation of image/selavy Filepairs within a VAST epoch."""
 
-    def __init__(self, rootpath: Path, tiletype: str, stokes: str, regions: tuple[str], band: str):
-        self.rootpath = rootpath
-        self.tiletype = tiletype
-        self.stokes = stokes
-        self.regs = regions
-        self.band = band
-        self.region = Region(regions, band) if regions else None
-        self.path = rootpath / tiletype
-        self.name = rootpath.parts[-1]
+    path: Path
+    region: Region
+    tiletype: str
+    stokes: str
+    band: str
+
+    def __post_init__(self):
+        self.name = self.path.name
+        self.path = self.path / self.tiletype
         self._parse_files()
-
-    def __str__(self):
-        return f'<{self.name}-{self.stokes}-{self.tiletype}>'
-
-    def __repr__(self):
-        return f"Epoch(Path('{self.rootpath}'), tiletype='{self.tiletype}', stokes='{self.stokes}', regions={self.regs}, band='{self.band}')"
 
     def _parse_files(self):
 
@@ -124,41 +68,35 @@ class Epoch:
             raise ValueError("Must pass tiletype value of COMBINED or TILES")
 
         if self.region:
-            self.image_files = [f for field in self.region.fields for f in image_files if field in str(f)]
-            self.selavy_files = [f for field in self.region.fields for f in selavy_files if field in str(f)]
-        else:
-            self.image_files = image_files
-            self.selavy_files = selavy_files
+            image_files = [f for field in self.region for f in image_files if field in str(f)]
+            selavy_files = [f for field in self.region for f in selavy_files if field in str(f)]
             
-        num_images = len(self.image_files)
-        num_selavy = len(self.selavy_files)    
-
-        logger.info(f"{num_images:>4} images and {num_selavy:>4} selavy files in epoch {self.name}.")
-
         # Regex pattern to select field name (e.g. 0012+00A)
         pattern = re.compile(r'\S*(\d{4}[-+]\d{2}[AB])\S*')
-        self.files = [Filepair(im, sel) for im in self.image_files for sel in self.selavy_files if
+        self.files = [Filepair(im, sel) for im in image_files for sel in selavy_files if
                       pattern.sub(r'\1', str(sel)) in str(im)]
         self.num_files = len(self.files)
 
 
+@dataclass
 class Image:
+    """Representation of an ASKAP image."""
 
-    def __init__(self, filepair, refcat, load_data=True):
-        self.filepair = filepair
-        self.imagepath = filepair.image
-        self.selavypath = filepair.selavy
-        self.refcat = refcat
+    filepair: Filepair
+    refcat: 'ReferenceCatalog'
+    load_data: bool = True
+
+    def __post_init__(self):
+        self.imagepath = self.filepair.image
+        self.selavypath = self.filepair.selavy
+        self.fieldname = self.imagepath.name
 
         self._parse_name()
-        self._load(load_data)
-
-    def __str__(self):
-        return f"<Image: {self.epoch} {self.fieldname} Stokes{self.stokes}>"
+        self._load(self.load_data)
 
     def __repr__(self):
-        return f"<Image: {self.epoch} {self.fieldname} Stokes{self.stokes}>"
-
+        return f"<Image: {self.imagepath.parts[-1]!r}>"
+        
     def _parse_name(self):
         pattern = re.compile(r'^\S*_(\d{4}[+-]\d{2}[AB]).(EPOCH\d{2}x*).([IV]).fits')
         self.fieldname = pattern.sub(r'\1', str(self.imagepath))
@@ -190,7 +128,7 @@ class Image:
 
         self.wcs = wcs.WCS(self.header, naxis=2)
         self.sbid = self.header.get('SBID')
-        self.frequecy = self._get_frequency()
+        self.frequency = self._get_frequency()
         self.bmaj = self.header.get('BMAJ')
         self.bmin = self.header.get('BMIN')
         self.bpa = self.header.get('BPA')
