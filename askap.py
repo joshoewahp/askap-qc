@@ -92,6 +92,7 @@ class Image:
         self.fieldname = self.imagepath.name
 
         self._parse_name()
+
         self._load(self.load_data)
 
     def __repr__(self):

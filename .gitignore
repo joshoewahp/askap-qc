@@ -21,7 +21,6 @@ media
 *.fits
 *.pickle
 figures
-data
 cache
 
 # Python # 
