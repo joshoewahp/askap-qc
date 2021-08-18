@@ -1,6 +1,8 @@
+import copy
 import numpy as np
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import patch
 
 from askap import Filepair, Epoch, Region, Image
 from catalog import ReferenceCatalog
@@ -89,7 +91,23 @@ class ImageTest(TestCase):
         return super().setUpClass()
 
     def setUp(self):
+        """
+        Mock image data of 4000x4000 pixels and set up field positions
+        to avoid including actual image data in tests directory.
+        """
+
         self.northimage = Image(self.northfiles, refcat=self.refcat.sources)
+        self.southimage = Image(self.southfiles, refcat=self.refcat.sources)
+
+        self.northimage.data = np.zeros((4000, 4000))
+        self.northimage.size_x = 4000
+        self.northimage.size_y = 4000
+        self.northimage._set_field_positions()
+
+        self.southimage.data = np.zeros((4000, 4000))
+        self.southimage.size_x = 4000
+        self.southimage.size_y = 4000
+        self.southimage._set_field_positions()
 
         return super().setUp()
 
@@ -115,8 +133,6 @@ class ImageTest(TestCase):
         self.assertEqual(image.bmaj, 0.00364940923141675)
         self.assertEqual(image.bmin, 0.00356381661788453)
         self.assertEqual(image.bpa, 5.28573604455489)
-        self.assertEqual(image.size_x, 4000)
-        self.assertEqual(image.size_y, 4000)
         self.assertEqual(image.bcr_ra, 3.102094583333)
         self.assertEqual(image.bcr_dec, 0.003423722222222)
         self.assertEqual(image.frequency, 887491000)
@@ -141,12 +157,14 @@ class ImageTest(TestCase):
         self.assertEqual(image.data, None)
         
     def test_find_nearest_edge_axes_size_mismatched(self):
-        image = Image(self.northfiles, refcat=self.refcat.sources, load_data=False)
+
+        # Copy northimage with mocked data array to avoid affecting other tests
+        image = copy.copy(self.northimage)
 
         # Mock swapped image dimensions
-        image.data = self.northimage.data[:,:-1]
+        image.data = self.northimage.data[:, :-1]
         image.size_y = self.northimage.size_y - 1
-        edge_pixels =image._find_nearest_edge()
+        edge_pixels = image._find_nearest_edge()
 
         self.assertTrue((edge_pixels == [[2000, 3999]]).all())
     
@@ -190,8 +208,7 @@ class ImageTest(TestCase):
         self.check_column_names(askap)
         
     def test_get_catalogue_sumss_south(self):
-        southimage = Image(self.southfiles, refcat=self.refcat.sources)
-        sumss = southimage.get_catalogue('SUMSS')
+        sumss = self.southimage.get_catalogue('SUMSS')
 
         self.assertEqual(len(sumss), 231)
         self.check_column_names(sumss)
@@ -200,8 +217,7 @@ class ImageTest(TestCase):
         self.assertRaises(AssertionError, self.northimage.get_catalogue, 'SUMSS')
 
     def test_get_catalogue_nvss_south(self):
-        southimage = Image(self.southfiles, refcat=self.refcat.sources)
-        self.assertRaises(AssertionError, southimage.get_catalogue, 'NVSS')
+        self.assertRaises(AssertionError, self.southimage.get_catalogue, 'NVSS')
 
     def test_get_catalogue_nvss_north(self):
         nvss = self.northimage.get_catalogue('NVSS')

@@ -1,4 +1,5 @@
 import os
+import numpy as np
 from unittest import TestCase
 from pathlib import Path
 
@@ -20,6 +21,13 @@ class CrossmatchTest(TestCase):
         racscat = ReferenceCatalog(racspath)
 
         self.image = Image(files, refcat=racscat.sources)
+
+        # Nock data array
+        self.image.data = np.zeros((4000, 4000))
+        self.image.size_x = 4000
+        self.image.size_y = 4000
+        self.image._set_field_positions()
+
         self.askap_cat = Catalog(self.image, survey_name='askap')
         self.nvss_cat = Catalog(self.image, survey_name='nvss')
         self.icrf_cat = Catalog(self.image, survey_name='icrf')

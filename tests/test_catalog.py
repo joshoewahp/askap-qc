@@ -82,6 +82,12 @@ class CatalogTest(TestCase):
 
         self.image = Image(files, refcat=racscat.sources)
 
+        # Mock data array
+        self.image.data = np.zeros((4000, 4000))
+        self.image.size_x = 4000
+        self.image.size_y = 4000
+        self.image._set_field_positions()
+
 
     def test_askap_defaults(self):
         catalog = Catalog(self.image, survey_name='askap')
